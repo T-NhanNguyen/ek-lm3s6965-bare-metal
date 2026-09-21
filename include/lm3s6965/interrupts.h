@@ -46,11 +46,14 @@ typedef enum
     LM3S6965_IRQ_ETHERNET        = 42
 } lm3s6965_irq_t;
 
-#define LM3S6965_CORE_EXCEPTION_COUNT 16u
-#define LM3S6965_IRQ_COUNT            43u
-#define LM3S6965_VECTOR_TABLE_ENTRIES (LM3S6965_CORE_EXCEPTION_COUNT + LM3S6965_IRQ_COUNT)
-
-#define LM3S6965_NVIC_PRIORITY_BITS   3u
+/* Vector-table sizes and the NVIC priority width. */
+typedef enum
+{
+    LM3S6965_CORE_EXCEPTION_COUNT = 16,
+    LM3S6965_IRQ_COUNT            = 43,
+    LM3S6965_VECTOR_TABLE_ENTRIES = LM3S6965_CORE_EXCEPTION_COUNT + LM3S6965_IRQ_COUNT,
+    LM3S6965_NVIC_PRIORITY_BITS   = 3
+} lm3s6965_interrupt_count_t;
 
 /* Handler names referenced by the vector table in src/startup.c. Each is defined
  * there as a weak alias of Default_Handler, so firmware may override any of them

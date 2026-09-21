@@ -5,12 +5,15 @@
 
 #include "lm3s6965/memory_map.h"
 
-#define UART_DATA_OFFSET            0x000u
-#define UART_FLAGS_OFFSET           0x018u
-#define UART_INTEGER_DIVISOR_OFFSET 0x024u
-#define UART_FRACTIONAL_DIVISOR_OFFSET 0x028u
-#define UART_LINE_CONTROL_OFFSET    0x02Cu
-#define UART_CONTROL_OFFSET         0x030u
+typedef enum
+{
+    UART_DATA_OFFSET               = 0x000,
+    UART_FLAGS_OFFSET              = 0x018,
+    UART_INTEGER_DIVISOR_OFFSET    = 0x024,
+    UART_FRACTIONAL_DIVISOR_OFFSET = 0x028,
+    UART_LINE_CONTROL_OFFSET       = 0x02C,
+    UART_CONTROL_OFFSET            = 0x030
+} uart_register_offset_t;
 
 #define UART_FLAG_TRANSMIT_FIFO_FULL (1u << 5)
 
