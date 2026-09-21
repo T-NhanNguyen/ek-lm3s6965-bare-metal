@@ -277,6 +277,7 @@ include/lm3s6965/                Register and peripheral headers
 src/startup.c                    Vector table, reset handler, .data/.bss init
 src/main.c                       Firmware entry point
 src/uart.c                       Polled UART0 driver
+src/gpio.c                       GPIO alternate-function selection and digital enable
 src/system_control.c             SYSCTL clock gating and PLL configuration
 src/syscalls.c                   newlib syscall stubs (_write routes stdout to UART0)
 openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
@@ -312,6 +313,10 @@ Ethernet) are in `include/lm3s6965/memory_map.h`.
 | `uart0_write` | Writes a NUL-terminated string to UART0. |
 | `uart0_register_address` | Maps a UART0 register offset to an absolute address. |
 | `system_control_register_address` | Maps a SYSCTL register offset to an absolute address. |
+| `gpio_register_address` | Maps a GPIO port register offset to an absolute address. |
+| `gpio_select_alternate_function` | Routes a port's masked pins to their alternate hardware function (`GPIOAFSEL`). |
+| `gpio_select_protected_alternate_function` | Same, for the guarded PB7/PC[3:0] pins: unlocks `GPIOLOCK`, sets the `GPIOCR` commit bits, writes `GPIOAFSEL`, then re-locks. |
+| `gpio_enable_digital_function` | Enables the digital function on a port's masked pins (`GPIODEN`). |
 | `spin_delay` | Busy-waits a fixed number of loop iterations. |
 | `system_control_enable_peripheral_clock` | Sets a clock-gating bit in a SYSCTL `RCGC` register. |
 | `system_control_configure_pll` | Switches the core to the 50 MHz PLL output. Returns false and stays on the oscillator if the PLL never locks. |

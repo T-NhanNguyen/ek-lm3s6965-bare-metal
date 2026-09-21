@@ -41,6 +41,7 @@ set(LM3S6965_LINK_FLAGS
 add_executable(${PROJECT_NAME}
     src/startup.c
     src/system_control.c
+    src/gpio.c
     src/uart.c
     src/syscalls.c
     src/main.c)

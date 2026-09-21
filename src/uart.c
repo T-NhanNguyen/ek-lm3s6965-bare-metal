@@ -1,6 +1,9 @@
 #include "lm3s6965/uart.h"
 
+#include "lm3s6965/gpio.h"
 #include "lm3s6965/system_control.h"
+
+#define UART0_GPIO_PIN_MASK (GPIO_PIN(0) | GPIO_PIN(1))
 
 #define UART_DIVISOR_FACTOR 16u
 #define UART_FRACTIONAL_DIVISOR_ROUNDING_NUMERATOR 8u
@@ -25,6 +28,9 @@ void uart0_initialize(uint32_t peripheral_clock_hz, uint32_t baud_rate)
 
     system_control_enable_peripheral_clock(SYSTEM_CONTROL_RCGC1_OFFSET, RCGC1_UART0_BIT);
     system_control_enable_peripheral_clock(SYSTEM_CONTROL_RCGC2_OFFSET, RCGC2_GPIOA_BIT);
+
+    gpio_select_alternate_function(GPIO_PORT_A_BASE_ADDRESS, UART0_GPIO_PIN_MASK);
+    gpio_enable_digital_function(GPIO_PORT_A_BASE_ADDRESS, UART0_GPIO_PIN_MASK);
 
     REGISTER32(uart0_register_address(UART_CONTROL_OFFSET)) = 0u;
 
