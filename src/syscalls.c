@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "lm3s6965/trace.h"
 #include "lm3s6965/uart.h"
 
 extern uint32_t _end;
@@ -39,9 +40,14 @@ int _write(int file_descriptor, char *buffer, int length)
 {
     (void)file_descriptor;
 
+    /* Both consoles receive every byte. The ITM write is a no-op until the trace
+     * unit is enabled, so this path is safe whether or not SWO is being read. */
     for (int index = 0; index < length; index++)
     {
-        uart0_write_byte((uint8_t)buffer[index]);
+        const uint8_t byte = (uint8_t)buffer[index];
+
+        uart0_write_byte(byte);
+        trace_write_byte(byte);
     }
 
     return length;

@@ -69,3 +69,10 @@ credentials.*
 *~
 __pycache__/
 *.py[cod]
+
+# ---------------------------------------------------------------------------
+# Python virtual environment for the pyftdi SWO console reader.
+# Recreate it with: python3 -m venv .venv && .venv/bin/pip install pyftdi
+# ---------------------------------------------------------------------------
+.venv/
+venv/

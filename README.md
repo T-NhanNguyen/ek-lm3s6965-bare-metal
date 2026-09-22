@@ -30,6 +30,7 @@ All versions in this table were verified on macOS 26.6 (arm64).
 | libftdi | 1.5_2 | FTDI FT2232 driver for the Stellaris ICDI | `brew install libftdi` |
 | libusb-compat | 0.1.9 | Legacy libusb 0.1 API. Some OpenOCD paths need it. | `brew install libusb-compat` |
 | picocom | 2024-07 | Serial console for UART0 output | `brew install picocom` |
+| pyftdi | 0.57.2 | Python FTDI driver. Reads the ICDI SWO channel over libusb. | `pip install pyftdi` |
 | arm-none-eabi-gdb | 17.2 | Standalone debugger. The Arm toolchain also bundles it. | `brew install arm-none-eabi-gdb` |
 
 Install everything except the Arm toolchain with one command:
@@ -40,6 +41,16 @@ brew install cmake qemu openocd libusb libftdi libusb-compat picocom arm-none-ea
 
 > Homebrew ships OpenOCD under the formula name **`open-ocd`**. The
 > `brew install openocd` alias still resolves. The binary is still `openocd`.
+
+Install `pyftdi` into a virtual environment. Python packages do not belong to Homebrew:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install pyftdi
+```
+
+`scripts/icdi-console.sh` finds this environment automatically. Set `PYFTDI_PYTHON` to
+point at a different interpreter.
 
 ### Installing the Arm toolchain
 
@@ -229,16 +240,97 @@ scripts/flash.sh path/to/other.elf    # or name the file
 The script programs, verifies, and resets the target:
 `openocd -f openocd/board/ek-lm3s6965.cfg -c "program <elf> verify reset exit"`.
 
-### Serial console
+### Console output
 
-> **Not available on macOS at this time.** The ICDI has a virtual COM port. Recent macOS
-> versions ship no FTDI VCP driver, so no `/dev/cu.usbserial-*` node appears. The command
-> `kmutil showloaded | grep -i ftdi` returns nothing. This does **not** block flashing.
-> OpenOCD drives the chip over raw USB through libusb.
+The firmware sends every `printf` byte to **two** consoles at the same time. Each one has its
+own setup call in `main`.
 
-To get a console, install the FTDI VCP driver from ftdi.com. This needs administrator
-approval. You can also attach a USB serial adapter to the UART0 header on the board. Then
-run:
+| Backend | Path out of the chip | Read it with | Rate |
+|---|---|---|---|
+| UART0 | the `PA0` and `PA1` header pins | a USB serial adapter | 115200, 8N1 |
+| ITM and SWO | the trace pin, tapped by the on-board ICDI | the on-board ICDI | 1000000, 8N1 |
+
+`uart0_initialize` configures the UART. `trace_initialize` configures the ITM and the TPIU.
+`_write` in `src/syscalls.c` fans each byte out to both.
+
+#### The SWO console, through the ICDI
+
+This path needs no extra hardware. Two conditions apply.
+
+1. **The probe must use SWD.** In JTAG mode the `TDO` pin carries JTAG data, so the ICDI tap
+   cannot see SWO. In SWD mode that pin carries SWO instead. OpenOCD asserts the ICDI's
+   `SWD_EN` line for `transport select swd`, and the ICDI switches over.
+2. **The rate must match.** The firmware sets 1 Mbaud through `SWO_BAUD_RATE`. The TPIU
+   prescaler is `system_clock_hz / SWO_BAUD_RATE - 1`.
+
+An SWD probe does not prevent JTAG from working later. This was measured on the board: with
+the trace unit fully enabled, a JTAG connection still read `DID0` and every trace register.
+The debug port arbitrates the shared pin by transport. There is no mode to forget to change
+back.
+
+Capture the banner. Install `pyftdi` first, as in [Required packages](#required-packages).
+
+```bash
+scripts/icdi-console.sh
+```
+
+The script finds a Python interpreter with `pyftdi`, opens the ICDI second channel, starts
+the reader, then resets the target. The order matters, because the firmware prints the
+banner one time only. The output ends with `lm3s6965 bring-up complete`, and the script
+prints `PASS: console received over SWO through the ICDI`.
+
+| Option | Effect |
+|---|---|
+| `--seconds N` | Capture window in seconds. The default is 4. |
+| `--baud RATE` | SWO rate. It must match `SWO_BAUD_RATE`. The default is 1000000. |
+| `--raw` | Also print the raw captured bytes as hex. |
+
+> **The probe must stay attached for the whole capture window.** The board's CPLD routes
+> SWO only while the debugger asserts `SWD_EN`. A capture that stops OpenOCD too early
+> receives nothing.
+
+#### The UART console
+
+A USB serial adapter on the UART0 header also works. The firmware muxes `PA0` and `PA1` to
+UART0, so the header is live.
+
+> **The firmware prints the banner one time only.** It prints from `main()`, directly after
+> reset. The reader must therefore listen before the reset. `scripts/console.sh` starts the
+> reader first and resets the target second. A manual capture needs the same order.
+
+#### The ICDI virtual COM port is not a serial port
+
+macOS cannot bind the ICDI virtual COM port. The FTDI VCP driver is a system extension. Its
+`Info.plist` lists **436** accepted `idVendor:idProduct` pairs. The pair `0x0403:0xbcd9` of
+this board is not in that list. The driver therefore never creates a `/dev/cu.usbserial-*`
+node. Installing the driver does not help.
+
+That limit does not matter. The SWO console above reaches the ICDI over raw libusb, exactly
+as OpenOCD does.
+
+#### Wire the adapter
+
+| Board UART0 header | Adapter |
+|---|---|
+| PA1 (UART0 TX) | RXD |
+| PA0 (UART0 RX) | TXD |
+| GND | GND |
+
+Use 115200 baud, 8 data bits, no parity, 1 stop bit, and no flow control.
+
+#### Capture the banner
+
+```bash
+scripts/console.sh
+```
+
+The script finds the adapter, opens the port, and resets the target.
+
+> **The firmware prints the banner one time only.** It prints from `main()`, directly after
+> reset. The reader must therefore listen before the reset. `scripts/console.sh` starts the
+> reader first and resets the target second. A manual capture needs the same order.
+
+To read the port by hand, start `picocom` first. Reset the board second.
 
 ```bash
 picocom -b 115200 /dev/cu.usbserial-XXXX
@@ -278,6 +370,7 @@ src/startup.c                    Vector table, reset handler, .data/.bss init
 src/main.c                       Firmware entry point
 src/uart.c                       Polled UART0 driver
 src/gpio.c                       GPIO alternate-function selection and digital enable
+src/trace.c                      ITM and TPIU setup for the SWO console
 src/system_control.c             SYSCTL clock gating and PLL configuration
 src/syscalls.c                   newlib syscall stubs (_write routes stdout to UART0)
 openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
@@ -285,6 +378,8 @@ openocd/interface/               ICDI interface config for this board's 0403:bcd
 scripts/check-connection.sh      Cable and probe detection
 scripts/probe.sh                 Read-only connectivity check
 scripts/flash.sh                 Program, verify, reset
+scripts/console.sh               Read the UART0 console through a USB serial adapter
+scripts/icdi-console.sh          Read the SWO console through the on-board ICDI
 ```
 
 ### Memory map
@@ -317,12 +412,15 @@ Ethernet) are in `include/lm3s6965/memory_map.h`.
 | `gpio_select_alternate_function` | Routes a port's masked pins to their alternate hardware function (`GPIOAFSEL`). |
 | `gpio_select_protected_alternate_function` | Same, for the guarded PB7/PC[3:0] pins: unlocks `GPIOLOCK`, sets the `GPIOCR` commit bits, writes `GPIOAFSEL`, then re-locks. |
 | `gpio_enable_digital_function` | Enables the digital function on a port's masked pins (`GPIODEN`). |
+| `trace_register_address` | Maps a trace register offset to an absolute address. |
+| `trace_initialize` | Enables the ITM and TPIU so console output also leaves as SWO. |
+| `trace_write_byte` | Waits for the ITM stimulus port ready bit, then writes one byte to port 0. |
 | `spin_delay` | Busy-waits a fixed number of loop iterations. |
 | `system_control_enable_peripheral_clock` | Sets a clock-gating bit in a SYSCTL `RCGC` register. |
 | `system_control_configure_pll` | Switches the core to the 50 MHz PLL output. Returns false and stays on the oscillator if the PLL never locks. |
 | `system_control_wait_for_pll_lock` | Polls `RIS.PLLLRIS` for PLL lock with a bounded timeout. Returns the iterations remaining. |
 | `system_control_read_rcc` | Reads back `RCC`. The firmware uses this value to check its own clock configuration. |
-| `_write` | newlib stub that sends stdout to UART0. |
+| `_write` | newlib stub that sends stdout to UART0 and to the ITM. |
 | `_sbrk` | Bump allocator. The heap grows from `_end` toward the stack. |
 | `_read`, `_close`, `_fstat`, `_isatty`, `_lseek`, `_exit`, `_kill`, `_getpid` | Remaining newlib stubs |
 
@@ -351,7 +449,9 @@ Ethernet) are in `include/lm3s6965/memory_map.h`.
 - **Flashing is verified on hardware.** The firmware was programmed to an EK-LM3S6965 with
   `program … verify reset`. The vector table reads `0x20010000 0x000000f1` and `RCC` reads
   `0x01CE1380`. This **overwrote the factory firmware with no backup**.
-- **The virtual COM port of the ICDI is unreachable on macOS.** No FTDI VCP driver is
-  installed, so no `/dev/cu.usbserial-*` node appears. JTAG and flashing still work. OpenOCD
-  drives the probe over raw USB through libusb.
+- **The ICDI console is SWO, not a serial port.** macOS cannot bind the ICDI virtual COM
+  port, because the FTDI VCP extension whitelist excludes `0x0403:0xbcd9`. The console uses
+  the Cortex-M3 trace pin instead. The on-board CPLD taps that pin and forwards it to the
+  ICDI's second channel, which is readable over raw libusb. The probe must use SWD, because
+  in JTAG mode the shared pin carries JTAG data. No serial adapter is needed.
 - **Only UART0 is implemented.** GPIO, timers, and other peripherals are not implemented.

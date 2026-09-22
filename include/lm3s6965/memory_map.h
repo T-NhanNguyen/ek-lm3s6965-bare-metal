@@ -40,8 +40,11 @@
 #define SYSTEM_CONTROL_BASE_ADDRESS 0x400FE000u
 
 #define PRIVATE_PERIPHERAL_BASE_ADDRESS 0xE0000000u
+#define ITM_BASE_ADDRESS           0xE0000000u
 #define SYSTICK_BASE_ADDRESS       0xE000E010u
 #define NVIC_BASE_ADDRESS          0xE000E100u
+#define SCB_BASE_ADDRESS           0xE000E000u
+#define TPIU_BASE_ADDRESS          0xE0040000u
 
 #define REGISTER32(address) (*(volatile uint32_t *)(uintptr_t)(address))
 

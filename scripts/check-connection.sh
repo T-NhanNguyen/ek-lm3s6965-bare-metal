@@ -83,13 +83,23 @@ if [[ -n "$serial_ports" ]]; then
 else
     echo "  none"
     echo
-    echo "  The ICDI also exposes a virtual COM port, but macOS needs an FTDI VCP"
-    echo "  driver to create the /dev node, and recent macOS versions no longer"
-    echo "  ship one. Without it you get JTAG (OpenOCD) but no console."
+    echo "  The ICDI console on this board is one-way."
     echo
-    echo "  Options:"
-    echo "    - Install the FTDI VCP driver from ftdi.com (needs admin approval)."
-    echo "    - Or attach a USB-serial adapter to the board's UART0 header."
+    echo "    1. Host to target: WORKS. Bytes written to the FT2232 channel B"
+    echo "       arrive in the UART0 receive FIFO, over the net named VCP_RX."
+    echo "    2. Target to host: does NOT come from PA1. The ICDI listens on a"
+    echo "       different MCU pin, over the net named VCP_TX_SWO. So the banner"
+    echo "       cannot reach the ICDI, and macOS cannot bind the FTDI VCP driver"
+    echo "       to this board anyway (the extension whitelist omits"
+    echo "       0x0403:0xbcd9)."
+    echo
+    echo "  Attach a USB serial adapter to the board's UART0 header for the full"
+    echo "  two-way console:"
+    echo "    PA1 (UART0 TX) -> adapter RXD"
+    echo "    PA0 (UART0 RX) -> adapter TXD"
+    echo "    GND            -> adapter GND"
+    echo
+    echo "  Then run: scripts/console.sh"
     echo
     echo "  This does NOT block flashing -- OpenOCD talks raw USB via libusb."
 fi

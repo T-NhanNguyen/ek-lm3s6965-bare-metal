@@ -3,9 +3,11 @@
 
 #include "lm3s6965/memory_map.h"
 #include "lm3s6965/system_control.h"
+#include "lm3s6965/trace.h"
 #include "lm3s6965/uart.h"
 
 #define UART0_BAUD_RATE 115200u
+#define SWO_BAUD_RATE   1000000u
 
 int main(void)
 {
@@ -14,6 +16,7 @@ int main(void)
         pll_lock_acquired ? SYSTEM_CLOCK_FREQUENCY_HZ : EXTERNAL_CRYSTAL_FREQUENCY_HZ;
 
     uart0_initialize(system_clock_hz, UART0_BAUD_RATE);
+    trace_initialize(system_clock_hz, SWO_BAUD_RATE);
 
     printf("\n");
     printf("LM3S6965 bare-metal bring-up\n");
