@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 
-#include "lm3s6965/memory_map.h"
-
 /* Register offsets. The debug monitor control register lives in the SCB, the
  * stimulus port in the ITM, and the port size, prescaler, pin protocol and
  * formatter registers in the TPIU. Both the ITM and the TPIU keep a lock

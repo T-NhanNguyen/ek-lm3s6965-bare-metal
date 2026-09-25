@@ -3,10 +3,10 @@
 
 #include <stdint.h>
 
-#include "lm3s6965/memory_map.h"
-
 typedef enum
 {
+    GPIO_DATA_OFFSET                      = 0x000,
+    GPIO_DIRECTION_OFFSET                 = 0x400,
     GPIO_ALTERNATE_FUNCTION_SELECT_OFFSET = 0x420,
     GPIO_DIGITAL_ENABLE_OFFSET            = 0x51C,
     GPIO_LOCK_OFFSET                      = 0x520,

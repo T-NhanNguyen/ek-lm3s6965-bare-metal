@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "lm3s6965/memory_map.h"
-
 #define SYSTEM_CONTROL_RIS_OFFSET    0x050u
 #define SYSTEM_CONTROL_MISC_OFFSET   0x058u
 #define SYSTEM_CONTROL_RCC_OFFSET    0x060u

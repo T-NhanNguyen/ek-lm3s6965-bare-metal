@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "lm3s6965/led.h"
 #include "lm3s6965/memory_map.h"
 #include "lm3s6965/system_control.h"
 #include "lm3s6965/trace.h"
@@ -17,6 +18,9 @@ int main(void)
 
     uart0_initialize(system_clock_hz, UART0_BAUD_RATE);
     trace_initialize(system_clock_hz, SWO_BAUD_RATE);
+
+    user_led_initialize();
+    user_led_write(true);
 
     printf("\n");
     printf("LM3S6965 bare-metal bring-up\n");

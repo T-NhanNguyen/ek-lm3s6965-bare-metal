@@ -42,6 +42,7 @@ add_executable(${PROJECT_NAME}
     src/startup.c
     src/system_control.c
     src/gpio.c
+    src/led.c
     src/trace.c
     src/uart.c
     src/syscalls.c

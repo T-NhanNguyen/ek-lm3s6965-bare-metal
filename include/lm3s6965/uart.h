@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 
-#include "lm3s6965/memory_map.h"
-
 typedef enum
 {
     UART_DATA_OFFSET               = 0x000,
