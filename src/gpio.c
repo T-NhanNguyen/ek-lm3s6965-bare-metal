@@ -15,6 +15,28 @@ static void gpio_write_alternate_function_select(uint32_t port_base_address, uin
     REGISTER32(alternate_function_select_address) |= pin_mask;
 }
 
+static void gpio_select_pull(uint32_t port_base_address, uint32_t pin_mask, gpio_pull_t pull)
+{
+    const uint32_t pull_up_select_address =
+        gpio_register_address(port_base_address, GPIO_PULL_UP_SELECT_OFFSET);
+    const uint32_t pull_down_select_address =
+        gpio_register_address(port_base_address, GPIO_PULL_DOWN_SELECT_OFFSET);
+
+    switch (pull)
+    {
+        case GPIO_PULL_UP:
+            REGISTER32(pull_up_select_address) |= pin_mask;
+            break;
+        case GPIO_PULL_DOWN:
+            REGISTER32(pull_down_select_address) |= pin_mask;
+            break;
+        default:
+            REGISTER32(pull_up_select_address) &= ~pin_mask;
+            REGISTER32(pull_down_select_address) &= ~pin_mask;
+            break;
+    }
+}
+
 void gpio_select_alternate_function(uint32_t port_base_address, uint32_t pin_mask)
 {
     gpio_write_alternate_function_select(port_base_address, pin_mask);
@@ -37,4 +59,35 @@ void gpio_enable_digital_function(uint32_t port_base_address, uint32_t pin_mask)
         gpio_register_address(port_base_address, GPIO_DIGITAL_ENABLE_OFFSET);
 
     REGISTER32(digital_enable_address) |= pin_mask;
+}
+
+void gpio_configure_input(uint32_t port_base_address, uint32_t pin_mask, gpio_pull_t pull)
+{
+    const uint32_t alternate_function_select_address =
+        gpio_register_address(port_base_address, GPIO_ALTERNATE_FUNCTION_SELECT_OFFSET);
+    const uint32_t direction_address =
+        gpio_register_address(port_base_address, GPIO_DIRECTION_OFFSET);
+
+    REGISTER32(alternate_function_select_address) &= ~pin_mask;
+    REGISTER32(direction_address) &= ~pin_mask;
+    gpio_enable_digital_function(port_base_address, pin_mask);
+    gpio_select_pull(port_base_address, pin_mask, pull);
+}
+
+uint32_t gpio_read_pins(uint32_t port_base_address, uint32_t pin_mask)
+{
+    const uint32_t masked_data_address =
+        port_base_address + (pin_mask << GPIO_ADDRESS_MASK_SHIFT);
+
+    return REGISTER32(masked_data_address);
+}
+
+void gpio_enable_pull_up(uint32_t port_base_address, uint32_t pin_mask)
+{
+    gpio_select_pull(port_base_address, pin_mask, GPIO_PULL_UP);
+}
+
+void gpio_enable_pull_down(uint32_t port_base_address, uint32_t pin_mask)
+{
+    gpio_select_pull(port_base_address, pin_mask, GPIO_PULL_DOWN);
 }

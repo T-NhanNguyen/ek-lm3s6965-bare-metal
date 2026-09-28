@@ -10,8 +10,6 @@
 #define USER_LED_PIN                0u
 #define USER_LED_PIN_MASK           GPIO_PIN(USER_LED_PIN)
 
-#define GPIO_ADDRESS_MASK_SHIFT 2u
-
 void user_led_initialize(void);
 void user_led_write(bool high);
 

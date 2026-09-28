@@ -369,10 +369,12 @@ include/lm3s6965/                Register and peripheral headers
 src/startup.c                    Vector table, reset handler, .data/.bss init
 src/main.c                       Firmware entry point
 src/uart.c                       Polled UART0 driver
-src/gpio.c                       GPIO alternate-function selection and digital enable
+src/gpio.c                       GPIO alternate-function, digital enable, and input configuration
+src/led.c                        User LED driver
+src/switch.c                     Navigation and select switch driver
 src/trace.c                      ITM and TPIU setup for the SWO console
 src/system_control.c             SYSCTL clock gating and PLL configuration
-src/syscalls.c                   newlib syscall stubs (_write routes stdout to UART0)
+src/syscalls.c                   newlib syscall stubs (_write routes stdout to UART0 and the ITM)
 openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
 openocd/interface/               ICDI interface config for this board's 0403:bcd9 probe
 scripts/check-connection.sh      Cable and probe detection
@@ -399,7 +401,7 @@ Ethernet) are in `include/lm3s6965/memory_map.h`.
 
 | Function | Description |
 |---|---|
-| `main` | Initializes UART0 and prints the bring-up banner. The function then idles. |
+| `main` | Initializes UART0, the SWO trace unit, SysTick, the LED, and the switches. The function prints the banner, then blinks the LED when a switch is pressed. |
 | `Reset_Handler` | Copies `.data` to SRAM, zeroes `.bss`, runs `__libc_init_array`, and calls `main`. |
 | `Default_Handler` | Catches every unhandled interrupt and parks forever. |
 | `_init` | Empty stub that `crti.o` normally supplies. The `-nostartfiles` flag omits it. |
@@ -412,9 +414,20 @@ Ethernet) are in `include/lm3s6965/memory_map.h`.
 | `gpio_select_alternate_function` | Routes a port's masked pins to their alternate hardware function (`GPIOAFSEL`). |
 | `gpio_select_protected_alternate_function` | Same, for the guarded PB7/PC[3:0] pins: unlocks `GPIOLOCK`, sets the `GPIOCR` commit bits, writes `GPIOAFSEL`, then re-locks. |
 | `gpio_enable_digital_function` | Enables the digital function on a port's masked pins (`GPIODEN`). |
+| `gpio_configure_input` | Configures a port's masked pins as digital inputs with the selected pull resistor. |
+| `gpio_read_pins` | Reads the masked pin levels through the `GPIODATA` address mask. |
+| `gpio_enable_pull_up` | Enables the internal pull-up on a port's masked pins (`GPIOPUR`). |
+| `gpio_enable_pull_down` | Enables the internal pull-down on a port's masked pins (`GPIOPDR`). |
+| `user_led_initialize` | Configures the user LED pin as a digital output. |
+| `user_led_write` | Turns the user LED on or off. |
+| `user_switch_initialize` | Configures the navigation and select switchs as active-low inputs with internal pull-ups. |
+| `user_switch_is_pressed` | Returns true while the selected switch pin reads low. |
 | `trace_register_address` | Maps a trace register offset to an absolute address. |
 | `trace_initialize` | Enables the ITM and TPIU so console output also leaves as SWO. |
 | `trace_write_byte` | Waits for the ITM stimulus port ready bit, then writes one byte to port 0. |
+| `systick_initialize` | Configures SysTick for 1 ms ticks from the system clock. |
+| `delay_milliseconds` | Blocks for the given number of SysTick ticks. |
+| `blink_status_led` | Blinks the user LED the given number of times. |
 | `spin_delay` | Busy-waits a fixed number of loop iterations. |
 | `system_control_enable_peripheral_clock` | Sets a clock-gating bit in a SYSCTL `RCGC` register. |
 | `system_control_configure_pll` | Switches the core to the 50 MHz PLL output. Returns false and stays on the oscillator if the PLL never locks. |
