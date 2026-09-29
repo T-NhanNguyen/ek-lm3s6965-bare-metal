@@ -123,14 +123,14 @@ Artifacts land in `build/`:
 
 | File | Purpose |
 |---|---|
-| `lm3s6965_firmware` | ELF. GDB and QEMU use this file. |
-| `lm3s6965_firmware.bin` | Raw binary for flashing |
-| `lm3s6965_firmware.hex` | Intel HEX for flashing |
-| `lm3s6965_firmware.map` | Linker map |
-| `freertos/lm3s6965_freertos_firmware` | FreeRTOS ELF. GDB and QEMU use this file. |
-| `freertos/lm3s6965_freertos_firmware.bin` | FreeRTOS raw binary for flashing |
-| `freertos/lm3s6965_freertos_firmware.hex` | FreeRTOS Intel HEX for flashing |
-| `freertos/lm3s6965_freertos_firmware.map` | FreeRTOS linker map |
+| `examples/baremetal/lm3s6965_firmware` | ELF. GDB and QEMU use this file. |
+| `examples/baremetal/lm3s6965_firmware.bin` | Raw binary for flashing |
+| `examples/baremetal/lm3s6965_firmware.hex` | Intel HEX for flashing |
+| `examples/baremetal/lm3s6965_firmware.map` | Linker map |
+| `examples/freertos/lm3s6965_freertos_firmware` | FreeRTOS ELF. GDB and QEMU use this file. |
+| `examples/freertos/lm3s6965_freertos_firmware.bin` | FreeRTOS raw binary for flashing |
+| `examples/freertos/lm3s6965_freertos_firmware.hex` | FreeRTOS Intel HEX for flashing |
+| `examples/freertos/lm3s6965_freertos_firmware.map` | FreeRTOS linker map |
 
 ## Key build flags
 
@@ -184,7 +184,7 @@ table, and the flash geometry. It then resumes the core. Run it before you flash
 ### Flash
 
 ```bash
-scripts/flash.sh                      # defaults to build/lm3s6965_firmware
+scripts/flash.sh                      # defaults to build/examples/baremetal/lm3s6965_firmware
 scripts/flash.sh path/to/other.elf    # or name the file
 ```
 
@@ -215,7 +215,7 @@ The script programs, verifies, and resets the target:
 4. Flash the FreeRTOS image. Run the command from the repository root.
 
    ```bash
-   scripts/flash.sh build/freertos/lm3s6965_freertos_firmware
+   scripts/flash.sh build/examples/freertos/lm3s6965_freertos_firmware
    ```
 
    The script programs, verifies, and resets the target. Use an absolute path if you work
@@ -241,15 +241,11 @@ The script programs, verifies, and resets the target:
 
 ```
 third_party/FreeRTOS-Kernel/     FreeRTOS kernel git submodule, pinned to V11.3.1
-freertos/CMakeLists.txt          FreeRTOS target build script
-freertos/FreeRTOSConfig.h        FreeRTOS configuration and handler mapping
-freertos/main.c                  FreeRTOS demo entry point
-freertos/hooks.c                 FreeRTOS hook and assertion callbacks
 cmake/toolchain-lm3s6965.cmake   CMake cross-compilation toolchain file
 linker/lm3s6965.ld               Memory layout: 256K flash @ 0x0, 64K SRAM @ 0x20000000
-include/lm3s6965/                Register and peripheral headers
+include/lm3s6965/                BSP public headers
+src/                             BSP sources and src/CMakeLists.txt
 src/startup.c                    Vector table, reset handler, .data/.bss init
-src/main.c                       Firmware entry point
 src/uart.c                       Polled UART0 driver
 src/gpio.c                       GPIO alternate-function, digital enable, and input configuration
 src/led.c                        User LED driver
@@ -257,6 +253,12 @@ src/switch.c                     Navigation and select switch driver
 src/trace.c                      ITM and TPIU setup for the SWO console
 src/system_control.c             SYSCTL clock gating and PLL configuration
 src/syscalls.c                   newlib syscall stubs (_write routes stdout to UART0 and the ITM)
+freertos/                        BSP FreeRTOS support (CMakeLists.txt, FreeRTOSConfig.h, hooks.c)
+freertos/CMakeLists.txt          FreeRTOS target build script
+freertos/FreeRTOSConfig.h        FreeRTOS configuration and handler mapping
+freertos/hooks.c                 FreeRTOS hook and assertion callbacks
+examples/baremetal/              bare-metal example (main.c, CMakeLists.txt)
+examples/freertos/               FreeRTOS example (main.c, CMakeLists.txt)
 openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
 openocd/interface/               ICDI interface config for this board's 0403:bcd9 probe
 scripts/check-connection.sh      Cable and probe detection

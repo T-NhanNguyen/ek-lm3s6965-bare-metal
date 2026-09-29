@@ -2,8 +2,8 @@
 
 | Function | Description |
 |---|---|
-| `main` (`src/main.c`) | Initializes UART0, the SWO trace unit, SysTick, the LED, and the switches. The function prints the banner, then blinks the LED when a switch is pressed. |
-| `main` (`freertos/main.c`) | Initializes UART0, the SWO trace unit, and the LED, creates the heartbeat and console tasks, and starts the scheduler. |
+| `main` (`examples/baremetal/main.c`) | Initializes UART0, the SWO trace unit, SysTick, the LED, and the switches. The function prints the banner, then blinks the LED when a switch is pressed. |
+| `main` (`examples/freertos/main.c`) | Initializes UART0, the SWO trace unit, and the LED, creates the heartbeat and console tasks, and starts the scheduler. |
 | `Reset_Handler` | Copies `.data` to SRAM, zeroes `.bss`, runs `__libc_init_array`, and calls `main`. |
 | `Default_Handler` | Catches every unhandled interrupt and parks forever. |
 | `_init` | Empty stub that `crti.o` normally supplies. The `-nostartfiles` flag omits it. |

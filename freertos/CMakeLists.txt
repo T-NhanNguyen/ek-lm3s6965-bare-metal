@@ -1,8 +1,8 @@
-# FreeRTOS target for the LM3S6965 (ARM Cortex-M3).
+# FreeRTOS support for the LM3S6965 (ARM Cortex-M3).
 #
 # The kernel source is the upstream FreeRTOS-Kernel submodule at
-# third_party/FreeRTOS-Kernel. The kernel's own CMake creates the
-# freertos_kernel static library and the freertos_kernel_port object library.
+# third_party/FreeRTOS-Kernel. The kernel CMake creates the freertos_kernel
+# static library and the freertos_kernel_port object library.
 
 set(FREERTOS_PORT GCC_ARM_CM3 CACHE STRING "FreeRTOS kernel port name")
 set(FREERTOS_HEAP 4 CACHE STRING "FreeRTOS heap implementation")
@@ -28,24 +28,14 @@ target_compile_options(freertos_kernel_port PRIVATE
     ${LM3S6965_ARCH_FLAGS}
     ${LM3S6965_OPTIMIZATION_FLAGS})
 
-add_executable(${FREERTOS_PROJECT_NAME}
-    main.c
-    hooks.c
-    ${LM3S6965_DRIVER_SOURCES})
-
-target_include_directories(${FREERTOS_PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR})
-
-target_compile_options(${FREERTOS_PROJECT_NAME} PRIVATE
+# Board default hooks. A consumer that supplies its own hooks links
+# freertos_kernel and lm3s6965_bsp directly instead.
+add_library(lm3s6965_freertos OBJECT hooks.c)
+target_link_libraries(lm3s6965_freertos PUBLIC freertos_kernel lm3s6965_bsp)
+# CMake does not propagate an object library's objects through another object
+# library, so the BSP objects are attached explicitly. This keeps
+# lm3s6965_freertos the single link target for a FreeRTOS consumer.
+target_sources(lm3s6965_freertos INTERFACE $<TARGET_OBJECTS:lm3s6965_bsp>)
+target_compile_options(lm3s6965_freertos PRIVATE
     ${LM3S6965_COMPILE_FLAGS}
     ${LM3S6965_OPTIMIZATION_FLAGS})
-
-target_link_libraries(${FREERTOS_PROJECT_NAME} PRIVATE
-    freertos_kernel
-    lm3s6965_headers)
-
-target_link_options(${FREERTOS_PROJECT_NAME} PRIVATE
-    ${LM3S6965_LINK_FLAGS}
-    -Wl,-Map=${FREERTOS_PROJECT_NAME}.map)
-
-lm3s6965_add_binary_outputs(${FREERTOS_PROJECT_NAME})

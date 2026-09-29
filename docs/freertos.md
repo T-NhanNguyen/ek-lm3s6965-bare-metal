@@ -17,10 +17,10 @@ The submodule keeps the parent repository small (the kernel repository is about 
 the build to one commit, and lets the kernel's own CMake select the port files so the file list
 stays correct on update. Fetch it with `git submodule update --init --recursive`.
 
-The image is `build/freertos/lm3s6965_freertos_firmware`. Run it in QEMU:
+The image is `build/examples/freertos/lm3s6965_freertos_firmware`. Run it in QEMU:
 
 ```bash
-qemu-system-arm -M lm3s6965evb -nographic -kernel build/freertos/lm3s6965_freertos_firmware
+qemu-system-arm -M lm3s6965evb -nographic -kernel build/examples/freertos/lm3s6965_freertos_firmware
 ```
 
 Expected output:

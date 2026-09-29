@@ -250,7 +250,7 @@ if not text:
     print("  - Did the probe stay attached for the whole capture? The board's CPLD")
     print("    routes SWO only while the probe asserts SWD_EN.")
     print("  - Is the probe in SWD mode? The board config defaults to swd.")
-    print("  - Does --baud match SWO_BAUD_RATE in src/main.c?")
+    print("  - Does --baud match SWO_BAUD_RATE in examples/baremetal/main.c?")
     print("  - Did the firmware call trace_initialize()?")
     raise SystemExit(1)
 

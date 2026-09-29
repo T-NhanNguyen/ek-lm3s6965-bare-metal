@@ -3,7 +3,7 @@
 QEMU emulates this exact board. You can test the firmware with no silicon attached:
 
 ```bash
-qemu-system-arm -M lm3s6965evb -nographic -kernel build/lm3s6965_firmware
+qemu-system-arm -M lm3s6965evb -nographic -kernel build/examples/baremetal/lm3s6965_firmware
 ```
 
 Expected output:
