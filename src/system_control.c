@@ -1,6 +1,6 @@
-#include "lm3s6965/system_control.h"
+#include "system_control.h"
 
-#include "lm3s6965/memory_map.h"
+#include "memory_map.h"
 
 static uint32_t system_control_register_address(uint32_t register_offset)
 {

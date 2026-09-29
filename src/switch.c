@@ -1,7 +1,7 @@
-#include "lm3s6965/switch.h"
+#include "switch.h"
 
-#include "lm3s6965/gpio.h"
-#include "lm3s6965/system_control.h"
+#include "gpio.h"
+#include "system_control.h"
 
 void user_switch_initialize(void)
 {

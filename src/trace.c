@@ -1,8 +1,8 @@
-#include "lm3s6965/trace.h"
+#include "trace.h"
 
 #include <stdbool.h>
 
-#include "lm3s6965/memory_map.h"
+#include "memory_map.h"
 
 static bool g_trace_enabled = false;
 

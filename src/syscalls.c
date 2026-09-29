@@ -5,8 +5,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "lm3s6965/trace.h"
-#include "lm3s6965/uart.h"
+#include "trace.h"
+#include "uart.h"
 
 extern uint32_t _end;
 extern uint32_t _estack;

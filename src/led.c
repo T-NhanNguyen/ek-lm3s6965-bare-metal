@@ -1,8 +1,8 @@
-#include "lm3s6965/led.h"
+#include "led.h"
 
-#include "lm3s6965/gpio.h"
-#include "lm3s6965/memory_map.h"
-#include "lm3s6965/system_control.h"
+#include "gpio.h"
+#include "memory_map.h"
+#include "system_control.h"
 
 void user_led_initialize(void)
 {

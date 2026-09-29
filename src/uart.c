@@ -1,8 +1,8 @@
-#include "lm3s6965/uart.h"
+#include "uart.h"
 
-#include "lm3s6965/gpio.h"
-#include "lm3s6965/memory_map.h"
-#include "lm3s6965/system_control.h"
+#include "gpio.h"
+#include "memory_map.h"
+#include "system_control.h"
 
 #define UART0_GPIO_PIN_MASK (GPIO_PIN(0) | GPIO_PIN(1))
 

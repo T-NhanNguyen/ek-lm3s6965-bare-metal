@@ -4,10 +4,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "lm3s6965/led.h"
-#include "lm3s6965/system_control.h"
-#include "lm3s6965/trace.h"
-#include "lm3s6965/uart.h"
+#include "led.h"
+#include "system_control.h"
+#include "trace.h"
+#include "uart.h"
 
 #define UART0_BAUD_RATE 115200u
 #define SWO_BAUD_RATE   1000000u

@@ -3,8 +3,8 @@
 
 #include <stdbool.h>
 
-#include "lm3s6965/gpio.h"
-#include "lm3s6965/memory_map.h"
+#include "gpio.h"
+#include "memory_map.h"
 
 #define USER_LED_PORT_BASE_ADDRESS  GPIO_PORT_F_BASE_ADDRESS
 #define USER_LED_PIN                0u

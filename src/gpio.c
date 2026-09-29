@@ -1,6 +1,6 @@
-#include "lm3s6965/gpio.h"
+#include "gpio.h"
 
-#include "lm3s6965/memory_map.h"
+#include "memory_map.h"
 
 static uint32_t gpio_register_address(uint32_t port_base_address, uint32_t register_offset)
 {

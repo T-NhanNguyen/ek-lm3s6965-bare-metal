@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-#include "lm3s6965/interrupts.h"
+#include "interrupts.h"
 
 extern uint32_t _estack;
 extern uint32_t _sidata;

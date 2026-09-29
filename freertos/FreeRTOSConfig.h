@@ -5,7 +5,7 @@
  * The values follow the official FreeRTOS demo CORTEX_LM3S6965_GCC_QEMU.
  * FreeRTOS itself is MIT licensed and lives in third_party/FreeRTOS-Kernel. */
 
-#include "lm3s6965/system_control.h"
+#include "system_control.h"
 
 /* Hardware description. */
 #define configCPU_CLOCK_HZ                   ((unsigned long)SYSTEM_CLOCK_FREQUENCY_HZ)

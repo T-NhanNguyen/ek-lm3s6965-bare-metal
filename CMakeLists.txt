@@ -64,11 +64,15 @@ set(LM3S6965_DRIVER_SOURCES
 
 set(FREERTOS_PROJECT_NAME lm3s6965_freertos_firmware)
 
+# The driver headers are exported by an interface target so every consumer
+# includes them by bare name (for example, "led.h") with no lm3s6965/ path.
+add_subdirectory(include)
+
 add_executable(${PROJECT_NAME}
     ${LM3S6965_DRIVER_SOURCES}
     src/main.c)
 
-target_include_directories(${PROJECT_NAME} PRIVATE include)
+target_link_libraries(${PROJECT_NAME} PRIVATE lm3s6965_headers)
 
 target_compile_options(${PROJECT_NAME} PRIVATE
     ${LM3S6965_COMPILE_FLAGS}

@@ -8,12 +8,12 @@ set(FREERTOS_PORT GCC_ARM_CM3 CACHE STRING "FreeRTOS kernel port name")
 set(FREERTOS_HEAP 4 CACHE STRING "FreeRTOS heap implementation")
 
 # The kernel expects an interface target named freertos_config that supplies the
-# directory holding FreeRTOSConfig.h. That config includes
-# lm3s6965/system_control.h, so the repository include directory is supplied too.
+# directory holding FreeRTOSConfig.h. That config includes the driver header
+# system_control.h, so the driver header interface is linked in as well.
 add_library(freertos_config INTERFACE)
 target_include_directories(freertos_config SYSTEM INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/include)
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(freertos_config INTERFACE lm3s6965_headers)
 
 add_subdirectory(
     ${PROJECT_SOURCE_DIR}/third_party/FreeRTOS-Kernel
@@ -34,13 +34,15 @@ add_executable(${FREERTOS_PROJECT_NAME}
     ${LM3S6965_DRIVER_SOURCES})
 
 target_include_directories(${FREERTOS_PROJECT_NAME} PRIVATE
-    ${PROJECT_SOURCE_DIR}/include)
+    ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_options(${FREERTOS_PROJECT_NAME} PRIVATE
     ${LM3S6965_COMPILE_FLAGS}
     ${LM3S6965_OPTIMIZATION_FLAGS})
 
-target_link_libraries(${FREERTOS_PROJECT_NAME} PRIVATE freertos_kernel)
+target_link_libraries(${FREERTOS_PROJECT_NAME} PRIVATE
+    freertos_kernel
+    lm3s6965_headers)
 
 target_link_options(${FREERTOS_PROJECT_NAME} PRIVATE
     ${LM3S6965_LINK_FLAGS}

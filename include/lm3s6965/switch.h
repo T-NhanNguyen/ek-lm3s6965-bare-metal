@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "lm3s6965/gpio.h"
-#include "lm3s6965/memory_map.h"
+#include "gpio.h"
+#include "memory_map.h"
 
 #define USER_DIRECTIONSW_PORT_BASE_ADDRESS GPIO_PORT_E_BASE_ADDRESS
 #define USER_SELECTSW_PORT_BASE_ADDRESS    GPIO_PORT_F_BASE_ADDRESS
