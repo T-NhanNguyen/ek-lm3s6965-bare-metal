@@ -12,6 +12,8 @@ add_library(lm3s6965_bsp OBJECT
     switch.c
     trace.c
     uart.c
+    ssi.c
+    oled.c
     syscalls.c)
 
 target_link_libraries(lm3s6965_bsp PUBLIC lm3s6965_headers)

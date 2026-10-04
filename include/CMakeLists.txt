@@ -7,4 +7,5 @@
 add_library(lm3s6965_headers INTERFACE)
 
 target_include_directories(lm3s6965_headers INTERFACE
-    ${CMAKE_CURRENT_SOURCE_DIR}/lm3s6965)
+    ${CMAKE_CURRENT_SOURCE_DIR}/lm3s6965
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets)

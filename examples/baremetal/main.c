@@ -1,9 +1,13 @@
+/* Bare-metal peripheral bring-up and switch-driven LED demo. */
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
-#include "switch.h"
+#include "image_lumon_bits.h"
 #include "led.h"
 #include "memory_map.h"
+#include "oled.h"
+#include "switch.h"
 #include "system_control.h"
 #include "trace.h"
 #include "uart.h"
@@ -89,6 +93,11 @@ int main(void)
     printf("rcc:   0x%08X\n", (unsigned)system_control_read_rcc());
     printf("uart0: %u 8N1\n", (unsigned)UART0_BAUD_RATE);
     printf("lm3s6965 bring-up complete\n");
+
+    oled_initialize(system_clock_hz);
+    oled_clear_screen();
+    oled_draw_image(image_lumon_bits, IMAGE_LUMON_WIDTH, IMAGE_LUMON_HEIGHT,
+                    IMAGE_LUMON_BYTES_PER_ROW);
 
     for (;;)
     {

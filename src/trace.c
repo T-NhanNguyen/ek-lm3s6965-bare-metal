@@ -1,6 +1,7 @@
 #include "trace.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "memory_map.h"
 

@@ -1,4 +1,7 @@
+/* GPIO configuration and masked pin access. */
 #include "gpio.h"
+
+#include <stdint.h>
 
 #include "memory_map.h"
 
@@ -72,6 +75,21 @@ void gpio_configure_input(uint32_t port_base_address, uint32_t pin_mask, gpio_pu
     REGISTER32(direction_address) &= ~pin_mask;
     gpio_enable_digital_function(port_base_address, pin_mask);
     gpio_select_pull(port_base_address, pin_mask, pull);
+}
+
+/* Select GPIO output mode; callers own the output latch levels. */
+void gpio_configure_output(uint32_t port_base_address, uint32_t pin_mask)
+{
+    const uint32_t alternate_function_select_address =
+        gpio_register_address(port_base_address,
+                              GPIO_ALTERNATE_FUNCTION_SELECT_OFFSET);
+    const uint32_t direction_address =
+        gpio_register_address(port_base_address, GPIO_DIRECTION_OFFSET);
+
+    REGISTER32(alternate_function_select_address) &= ~pin_mask;
+    REGISTER32(direction_address) |= pin_mask;
+    gpio_select_pull(port_base_address, pin_mask, GPIO_PULL_DISABLED);
+    gpio_enable_digital_function(port_base_address, pin_mask);
 }
 
 uint32_t gpio_read_pins(uint32_t port_base_address, uint32_t pin_mask)

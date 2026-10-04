@@ -1,5 +1,8 @@
 #include "switch.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "gpio.h"
 #include "system_control.h"
 

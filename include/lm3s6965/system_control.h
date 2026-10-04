@@ -49,6 +49,7 @@
 #define RCGC1_UART0_BIT  (1u << 0)
 #define RCGC1_UART1_BIT  (1u << 1)
 #define RCGC1_UART2_BIT  (1u << 2)
+#define RCGC1_SSI0_BIT   (1u << 4)
 #define RCGC2_GPIOA_BIT  (1u << 0)
 #define RCGC2_GPIOB_BIT  (1u << 1)
 #define RCGC2_GPIOC_BIT  (1u << 2)

@@ -7,6 +7,15 @@
 | `Reset_Handler` | Copies `.data` to SRAM, zeroes `.bss`, runs `__libc_init_array`, and calls `main`. |
 | `Default_Handler` | Catches every unhandled interrupt and parks forever. |
 | `_init` | Empty stub that `crti.o` normally supplies. The `-nostartfiles` flag omits it. |
+| `ssi0_initialize` | Configures SSI0 as an 8-bit mode-3 master at the fastest rate that does not exceed the requested rate. |
+| `ssi0_write_byte` | Drains unused RX data, waits for TX space, and writes one byte to SSI0. |
+| `ssi0_wait_idle` | Drains unused RX data and waits until SSI0 completes the transfer. |
+| `ssi0_enable` | Enables SSI0. |
+| `ssi0_disable` | Disables SSI0. |
+| `oled_initialize` | Configures panel pins, enables panel power, initializes SSI0, and sends the panel initialization sequence. |
+| `oled_clear_screen` | Clears all 128 x 96 pixels to black and waits for completion. |
+| `oled_draw_image` | Expands a full-width 1-bit image at row zero, writes black bottom rows, and waits for completion. |
+| `gpio_configure_output` | Configures the masked port pins as digital GPIO outputs without pull resistors. |
 | `uart0_initialize` | Configures the UART0 clock gate, the baud divisor, and 8N1 framing. |
 | `uart0_write_byte` | Blocks until the TX FIFO has room. The function then writes one byte. |
 | `uart0_write` | Writes a NUL-terminated string to UART0. |

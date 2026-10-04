@@ -1,5 +1,8 @@
 #include "led.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "gpio.h"
 #include "memory_map.h"
 #include "system_control.h"

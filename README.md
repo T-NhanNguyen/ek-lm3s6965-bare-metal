@@ -1,39 +1,39 @@
 # LM3S6965 Bare-Metal Cross-Compilation Toolchain
 
-This repository holds a cross-compilation environment for the TI LM3S6965. The LM3S6965
-is an ARM Cortex-M3 microcontroller with 256 KB of flash, 64 KB of SRAM, and a 50 MHz
-clock. The environment runs on macOS Apple Silicon. It needs no vendor IDE and no Docker.
+This repository holds a cross-compilation environment for the TI LM3S6965. The LM3S6965 is an
+ARM Cortex-M3 microcontroller. It has 256 KB of flash, 64 KB of SRAM, and a 50 MHz clock. The
+environment runs on macOS Apple Silicon. It needs no vendor IDE and no Docker.
 
-The chip dates from 2007. TI no longer supports its tooling. Code Composer Studio,
-StellarisWare, and LM Flash Programmer run only on Windows. This repository replaces that
-stack with open-source tools that run natively on arm64 macOS.
+The chip dates from 2007. TI no longer supports its tooling. Code Composer Studio, StellarisWare,
+and LM Flash Programmer run only on Windows. This repository replaces that stack with open-source
+tools that run natively on arm64 macOS.
 
-## Why this works at all
+## Why this works
 
-ARM defines the core. The vendor defines the peripherals. The `arm-none-eabi-gcc`
-toolchain targets the core, so it does not care how old the silicon is. Only the vendor
-layer is dead. This repository rebuilds that layer from the datasheet.
+ARM defines the core. The vendor defines the peripherals. The `arm-none-eabi-gcc` toolchain
+targets the core, so it does not care how old the silicon is. Only the vendor layer is dead. This
+repository rebuilds that layer from the datasheet.
 
 ---
 
 ## Required packages
 
-All versions in this table were verified on macOS 26.6 (arm64).
+The project verified all versions in this table on macOS 26.6 (arm64).
 
 | Package | Verified version | Purpose | Install |
 |---|---|---|---|
 | **Arm GNU Toolchain** | **15.3.rel1** | Cross compiler, newlib C library, binutils, and GDB | see [below](#installing-the-arm-toolchain) |
-| CMake | 4.4.2 | Build orchestration | `brew install cmake` |
+| CMake | 4.4.2 | Builds the project | `brew install cmake` |
 | QEMU | 11.1.1 | Emulates the `lm3s6965evb` board. No hardware needed. | `brew install qemu` |
-| OpenOCD | 0.12.0 | Flash programming and a GDB server over the ICDI probe | `brew install openocd` |
-| libusb | 1.0.30 | USB access for the FTDI debug probe | `brew install libusb` |
-| libftdi | 1.5_2 | FTDI FT2232 driver for the Stellaris ICDI | `brew install libftdi` |
-| libusb-compat | 0.1.9 | Legacy libusb 0.1 API. Some OpenOCD paths need it. | `brew install libusb-compat` |
-| picocom | 2024-07 | Serial console for UART0 output | `brew install picocom` |
+| OpenOCD | 0.12.0 | Programs the flash and serves GDB over the ICDI probe | `brew install openocd` |
+| libusb | 1.0.30 | Gives USB access to the FTDI debug probe | `brew install libusb` |
+| libftdi | 1.5_2 | Drives the FTDI FT2232 on the Stellaris ICDI | `brew install libftdi` |
+| libusb-compat | 0.1.9 | Provides the legacy libusb 0.1 API. Some OpenOCD paths need it. | `brew install libusb-compat` |
+| picocom | 2024-07 | Reads the UART0 serial console | `brew install picocom` |
 | pyftdi | 0.57.2 | Python FTDI driver. Reads the ICDI SWO channel over libusb. | `pip install pyftdi` |
 | arm-none-eabi-gdb | 17.2 | Standalone debugger. The Arm toolchain also bundles it. | `brew install arm-none-eabi-gdb` |
 
-Install everything except the Arm toolchain with one command:
+Install all packages except the Arm toolchain with one command:
 
 ```bash
 brew install cmake qemu openocd libusb libftdi libusb-compat picocom arm-none-eabi-gdb
@@ -49,8 +49,8 @@ python3 -m venv .venv
 .venv/bin/pip install pyftdi
 ```
 
-`scripts/icdi-console.sh` finds this environment automatically. Set `PYFTDI_PYTHON` to
-point at a different interpreter.
+`scripts/icdi-console.sh` finds this environment automatically. Set `PYFTDI_PYTHON` to point at a
+different interpreter.
 
 ### Installing the Arm toolchain
 
@@ -111,15 +111,15 @@ cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-lm3s6965.cmake
 cmake --build build
 ```
 
-Configure prints the resolved toolchain and the libc path. A misconfigured environment is
-then obvious at once:
+Configure prints the resolved toolchain and the libc path. The output shows a misconfigured
+environment at once:
 
 ```
 -- LM3S6965 toolchain: .../arm-none-eabi-gcc
 -- LM3S6965 libc     : .../thumb/v7-m/nofp/libc.a
 ```
 
-Artifacts land in `build/`:
+The build writes these files to `build/`:
 
 | File | Purpose |
 |---|---|
@@ -131,6 +131,9 @@ Artifacts land in `build/`:
 | `examples/freertos/lm3s6965_freertos_firmware.bin` | FreeRTOS raw binary for flashing |
 | `examples/freertos/lm3s6965_freertos_firmware.hex` | FreeRTOS Intel HEX for flashing |
 | `examples/freertos/lm3s6965_freertos_firmware.map` | FreeRTOS linker map |
+
+The bare-metal firmware now initializes the OLED, clears it, and draws the 128 x 72 LUMON image.
+`scripts/oled-brightness.sh <value>` sets contrast at runtime.
 
 ## Key build flags
 
@@ -146,11 +149,11 @@ Artifacts land in `build/`:
 
 ## Flash and debug on real hardware
 
-> **Status: verified on hardware.** The firmware runs on a real EK-LM3S6965. Every clock and
-> UART register was read back from silicon and matched.
+> **Status: verified on hardware.** The firmware runs on a real EK-LM3S6965. The project read
+> every clock and UART register back from silicon. All values matched.
 
-The on-board probe is a **Luminary Micro ICDI**, which contains an FTDI FT2232. Its USB
-identity is **not** what the OpenOCD shipped config expects:
+The on-board probe is a **Luminary Micro ICDI**, which contains an FTDI FT2232. Its USB identity
+is **not** the identity in the config that OpenOCD ships:
 
 | Field | OpenOCD `ftdi/luminary-icdi.cfg` | This board |
 |---|---|---|
@@ -158,9 +161,9 @@ identity is **not** what the OpenOCD shipped config expects:
 | **Product ID** | `0xbcda` | **`0xbcd9`** |
 | **Product string** | `"Luminary Micro ICDI Board"` | **`"Stellaris Evaluation Board"`** |
 
-The shipped file targets the LM3S9B9x kit. `openocd/interface/luminary-icdi-ek-lm3s6965.cfg`
-in this repository carries the correct identity. `openocd/board/ek-lm3s6965.cfg` combines it
-with the generic Stellaris target.
+The shipped file targets the LM3S9B9x kit. `openocd/interface/luminary-icdi-ek-lm3s6965.cfg` in
+this repository carries the correct identity. `openocd/board/ek-lm3s6965.cfg` adds the generic
+Stellaris target.
 
 ### Check the cable first
 
@@ -168,9 +171,8 @@ with the generic Stellaris target.
 scripts/check-connection.sh
 ```
 
-This script reports the detected probe, its VID and PID, and any serial nodes. It reads
-`ioreg`. It does not read `system_profiler`, which does not report this device on recent
-macOS versions.
+This script reports the detected probe, its VID and PID, and any serial nodes. It reads `ioreg`.
+It does not read `system_profiler`, which does not report this device on recent macOS versions.
 
 ### Verify the connection (writes nothing)
 
@@ -178,8 +180,8 @@ macOS versions.
 scripts/probe.sh
 ```
 
-This script halts the core. It prints the device identity (`DID0` and `DID1`), the vector
-table, and the flash geometry. It then resumes the core. Run it before you flash.
+This script halts the core. It prints the device identity (`DID0` and `DID1`), the vector table,
+and the flash geometry. It then resumes the core. Run it before you flash.
 
 ### Flash
 
@@ -218,8 +220,8 @@ The script programs, verifies, and resets the target:
    scripts/flash.sh build/examples/freertos/lm3s6965_freertos_firmware
    ```
 
-   The script programs, verifies, and resets the target. Use an absolute path if you work
-   from another directory, because the script calls `realpath`.
+   The script programs, verifies, and resets the target. If you work from another directory,
+   use an absolute path, because the script calls `realpath`.
 
 5. Capture the console. The banner prints one time after reset, so start the reader first.
 
@@ -227,15 +229,15 @@ The script programs, verifies, and resets the target:
    scripts/icdi-console.sh
    ```
 
-   The SWO path needs no extra hardware. Keep the probe attached for the whole capture
-   window. For a USB serial adapter on the UART0 header, use `scripts/console.sh` instead.
+   The SWO path needs no extra hardware. Keep the probe attached for the whole capture window.
+   For a USB serial adapter on the UART0 header, use `scripts/console.sh` instead.
 
 **Notes:**
 
 - The FreeRTOS image is 11.7 KB of text. It fits the 256 KB flash.
 - Flashing overwrites the current firmware. There is no backup.
 - To restore the bare-metal image, run `scripts/flash.sh` with no argument.
-- The FreeRTOS image has run in QEMU only. The hardware path is not verified yet.
+- The project verified the FreeRTOS image in QEMU only. The hardware path remains unverified.
 
 ## Source layout
 
@@ -270,27 +272,27 @@ scripts/icdi-console.sh          Read the SWO console through the on-board ICDI
 
 ## Known limitations
 
-- **The UART baud rate is verified by register read-back, not by observed characters.** On
-  the attached EK-LM3S6965, `RCC` reads back `0x01CE1380` and `UART0_IBRD`/`FBRD` read 27/8.
-  The relation `50 000 000 / (16 × 115200) = 27.1267` therefore holds on the real part. QEMU
-  does not time UART output against the baud rate, and macOS has no reachable serial console.
-  UART output was not observed end to end.
-- **Main-oscillator startup uses a fixed delay, not a status bit.** The code follows the
-  LM3S6965 datasheet sequence. The delay constant (524288 iterations) is a conservative
-  bound, not a measured value.
-- **Flashing is verified on hardware.** The firmware was programmed to an EK-LM3S6965 with
-  `program … verify reset`. The vector table reads `0x20010000 0x000000f1` and `RCC` reads
-  `0x01CE1380`. This **overwrote the factory firmware with no backup**.
-- **The ICDI console is SWO, not a serial port.** macOS cannot bind the ICDI virtual COM
-  port, because the FTDI VCP extension whitelist excludes `0x0403:0xbcd9`. The console uses
-  the Cortex-M3 trace pin instead. The on-board CPLD taps that pin and forwards it to the
-  ICDI's second channel, which is readable over raw libusb. The probe must use SWD, because
-  in JTAG mode the shared pin carries JTAG data. No serial adapter is needed.
-- **Only UART0 is implemented among the serial ports.** GPIO, the user LED, the switches,
-  SysTick, and the ITM trace block work. UART1, UART2, SSI, I2C, PWM, QEI, ADC, the
-  general-purpose timers, and Ethernet are not implemented.
-- **QEMU runs the console slowly.** The firmware paces each ITM write on the stimulus port
-  ready bit. QEMU does not model the ITM, so each byte spins the bounded wait loop. A full
-  banner takes about 45 seconds. Use a capture window of 45 seconds or more.
-- **The FreeRTOS target uses a 32 KB heap.** heap_4 owns one 32 KB block in `.bss`. Task
-  stacks come from that block. The bare-metal target does not use this heap.
+- **The project verified the UART baud rate by register read-back, not by observed characters.**
+  On the attached EK-LM3S6965, `RCC` reads back `0x01CE1380` and `UART0_IBRD`/`FBRD` read 27/8.
+  The relation `50 000 000 / (16 × 115200) = 27.1267` therefore holds on the real part. QEMU does
+  not time UART output against the baud rate. macOS has no reachable serial console, so no test
+  observed UART output end to end.
+- **Main-oscillator startup uses a fixed delay, not a status bit.** The code follows the LM3S6965
+  datasheet sequence. The delay constant (524288 iterations) is a conservative bound, not a
+  measured value.
+- **The project verified flashing on hardware.** It programmed the firmware to an EK-LM3S6965
+  with `program … verify reset`. The vector table reads `0x20010000 0x000000f1` and `RCC` reads
+  `0x01CE1380`. This step **overwrote the factory firmware with no backup**.
+- **The ICDI console is SWO, not a serial port.** macOS cannot bind the ICDI virtual COM port,
+  because the FTDI VCP extension whitelist excludes `0x0403:0xbcd9`. The console uses the
+  Cortex-M3 trace pin instead. The on-board CPLD taps that pin and forwards it to the ICDI's
+  second channel, which is readable over raw libusb. The probe must use SWD, because in JTAG mode
+  the shared pin carries JTAG data. No serial adapter is needed.
+- **The project implements only UART0 among the serial ports.** GPIO, the user LED, the switches,
+  SysTick, and the ITM trace block work. The project does not implement UART1, UART2, SSI, I2C,
+  PWM, QEI, ADC, the general-purpose timers, or Ethernet.
+- **QEMU runs the console slowly.** The firmware paces each ITM write on the stimulus port ready
+  bit. QEMU does not model the ITM, so each byte spins the bounded wait loop. A full banner takes
+  about 45 seconds. Use a capture window of 45 seconds or more.
+- **The FreeRTOS target uses a 32 KB heap.** heap_4 owns one 32 KB block in `.bss`. Task stacks
+  come from that block. The bare-metal target does not use this heap.

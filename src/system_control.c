@@ -1,5 +1,8 @@
 #include "system_control.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "memory_map.h"
 
 static uint32_t system_control_register_address(uint32_t register_offset)

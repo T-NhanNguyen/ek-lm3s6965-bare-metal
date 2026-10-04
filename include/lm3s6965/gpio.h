@@ -1,3 +1,4 @@
+/* GPIO pin configuration and masked input access. */
 #ifndef LM3S6965_GPIO_H
 #define LM3S6965_GPIO_H
 
@@ -45,6 +46,9 @@ void gpio_enable_digital_function(uint32_t port_base_address, uint32_t pin_mask)
 
 /* Configures the masked pins as digital inputs with the given pull resistor. */
 void gpio_configure_input(uint32_t port_base_address, uint32_t pin_mask, gpio_pull_t pull);
+
+/* Configures the masked pins as digital GPIO outputs without pull resistors. */
+void gpio_configure_output(uint32_t port_base_address, uint32_t pin_mask);
 
 /* Returns the masked pin levels. */
 uint32_t gpio_read_pins(uint32_t port_base_address, uint32_t pin_mask);
