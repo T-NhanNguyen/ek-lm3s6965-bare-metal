@@ -357,14 +357,33 @@ The user confirmed the visible image.
 
 ### Runtime brightness
 
-Command `0x81` sets contrast. It accepts `0x00`-`0xFF`.
-The vendor default is `0xB7`. Use `0xE0` as the recommended ceiling.
-This ceiling is not a verified electrical limit. High contrast increases current
-and can reduce panel life.
+Command `0x81` sets contrast in the recovered SSD1329 driver. The existing
+`scripts/oled-brightness.sh` helper supports `0x00`-`0xFF` as a **byte test range**;
+this is not a newly datasheet-verified SSD1329 parameter range or a safe operating range.
+The TI driver initializes contrast to `0xB7`, citing the RiT P14201 application note.
+Treat this as the vendor baseline, **not a panel-lifetime guarantee**. Neither `0xE0`
+nor `0xFF` is a verified safe ceiling. Higher contrast can increase panel current and
+reduce panel life; brightness alone cannot establish electrical safety.
 
-Brightness range (experimental):
-`0x40, 0x70, 0xA0, 0xB7, 0xC8, 0xD8, 0xE8, 0xF0, 0xFF`
-This range is the safety limis, but still isn't bright enough
+For comparison only, the supplied `datasheets/SSD0323_1-6.pdf` is Solomon Systech
+**SSD0323 Rev. 1.6, October 2006**, a different 128 x 80 controller, not the board's
+SSD1329/RiT P14201. Its command table and contrast description give `0x81` a
+`0x00`-`0x7F` range (printed pp23, 29). It also defines separate current controls
+`0x84`, `0x85`, and `0x86` (pp23, 29). Its electrical-characteristics table specifies
+IREF = 10 microamps and a conditional segment-current typical value of 300 microamps
+at contrast `0x7F` (p37). These are comparative evidence, **not transferable SSD1329
+limits** or a basis for recommending higher settings on this panel.
+
+Preview a single value without OpenOCD or hardware (decimal `183` is equivalent):
+
+```bash
+scripts/oled-brightness.sh --dry-run 0xB7
+```
+
+This validates the byte and prints the intended SWD/SSI operation without changing the
+panel. The above-baseline warning still applies. Use `--help` for usage.
+
+For an actual write:
 
 1. Let the firmware initialize SSI0 and the panel.
 2. Stop any other debugger session.
@@ -379,6 +398,44 @@ It does not change flash. A reset restores the firmware contrast default.
 The helper leaves pre-charge current command `0x82` unchanged.
 The panel has no readback. Black pixels remain dark at any contrast setting.
 See [[oled-runtime-brightness-via-openocd]] for the register writes and test limits.
+
+#### Interactive contrast test
+
+`scripts/oled-contrast-test.sh` reuses `oled-brightness.sh`; it does not implement a
+second MMIO path. It has **no default sweep** and no unattended mode. All values are
+validated before any hardware operation. Use decimal or `0x`-prefixed hex bytes;
+range STEP is a positive magnitude (1-255), ascending or descending as needed. The
+end value is included only if the step reaches it exactly. An explicit list preserves
+order and duplicates.
+
+```bash
+# Preview only: NO hardware operations, including no restoration write.
+scripts/oled-contrast-test.sh --dry-run 0x70 0xB7 0x10
+scripts/oled-contrast-test.sh --dry-run --list 64 0x70 0xA0 0xB7
+
+# Real test: terminal input and an explicit 'yes' before EVERY step.
+scripts/oled-contrast-test.sh --list 0x70 0xA0 0xB7
+scripts/oled-contrast-test.sh 0xB7 0x70 0x10
+scripts/oled-contrast-test.sh --help
+```
+
+Prerequisites are the same as for the single-value helper: an already flashed and
+running image that initialized the panel and SSI0, OpenOCD on PATH, the board/probe
+connected, and no competing debugger. The test script does not build, flash, render
+content, or diagnose darkness. Black pixels remain black; use existing bright content
+for visual comparisons. A warning precedes approval of every value above `0xB7`.
+Do not infer safety from a successful write or a visible image.
+
+Inspect the panel after each step. Any response other than exactly `yes`, EOF, or
+Ctrl-C stops the sequence. After any real write attempt, the script attempts to restore
+`0xB7` on completion, cancellation, caught interruption (INT/TERM/HUP), or helper
+failure, even if that helper may have only partially written. Cancellation before the
+first write does not touch hardware. Restoration is to the vendor baseline, not the
+unknown prior setting. A restoration failure produces a prominent warning and a
+nonzero exit status; the panel state is then unknown. There is no readback to verify
+restoration, and power loss, forced termination (SIGKILL), or a lost probe connection
+can prevent it. Check the board before continuing; resetting an image configured with
+`0xB7` reinitializes that baseline, but is not a safety or lifetime guarantee.
 
 ### Full-frame blit time
 

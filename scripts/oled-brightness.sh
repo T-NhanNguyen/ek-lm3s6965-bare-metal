@@ -4,17 +4,29 @@
 # The firmware must have initialized the panel and SSI0.
 #
 # Usage:
-#   ./scripts/oled-brightness.sh <value>
+#   ./scripts/oled-brightness.sh [--dry-run] <value>
 #   Use a hex byte such as 0xB7 or a decimal value from 0 to 255.
 
 set -euo pipefail
 
-SCRIPT_DIRECTORY=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPOSITORY_ROOT=$(dirname "$SCRIPT_DIRECTORY")
-BOARD_CONFIG="${REPOSITORY_ROOT}/openocd/board/ek-lm3s6965.cfg"
+usage() {
+    echo "Usage: ./scripts/oled-brightness.sh [--dry-run] <value>"
+    echo "Use a hex byte such as 0xB7 or a decimal value from 0 to 255."
+    echo "--dry-run validates and previews the operation without OpenOCD or hardware."
+    echo "--help, -h shows this help."
+}
 
+if [[ $# -eq 1 && ( "$1" == --help || "$1" == -h ) ]]; then
+    usage
+    exit 0
+fi
+DRY_RUN=false
+if [[ ${1:-} == --dry-run ]]; then
+    DRY_RUN=true
+    shift
+fi
 if [[ $# -ne 1 ]]; then
-    echo "Usage: ./scripts/oled-brightness.sh <value>" >&2
+    usage >&2
     exit 1
 fi
 
@@ -47,11 +59,19 @@ if (( VALUE > 255 )); then
 fi
 printf -v HEX_VALUE '0x%02X' "$VALUE"
 echo "OLED contrast: $HEX_VALUE"
-if (( VALUE > 224 )); then
-    echo "CAUTION: Above the recommended ceiling of 0xE0. High current can reduce panel life." >&2
-elif (( VALUE > 183 )); then
-    echo "CAUTION: Above the vendor default of 0xB7. Higher contrast increases panel current." >&2
+if (( VALUE > 183 )); then
+    echo "CAUTION: Above vendor baseline 0xB7; increased current may reduce panel life. No verified safe ceiling (including 0xE0/0xFF)." >&2
 fi
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo "Dry run: would halt firmware over SWD, drain RX/wait for SSI0 idle, select command mode via PC7, send 0x81 followed by $HEX_VALUE, wait for idle, and resume firmware."
+    echo "No OpenOCD invocation or panel changes; no reset or flash write. PC6 and pre-charge current (0x82) would remain unchanged."
+    exit 0
+fi
+
+SCRIPT_DIRECTORY=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPOSITORY_ROOT=$(dirname "$SCRIPT_DIRECTORY")
+BOARD_CONFIG="${REPOSITORY_ROOT}/openocd/board/ek-lm3s6965.cfg"
 
 if ! command -v openocd >/dev/null 2>&1; then
     echo "error: openocd not found on PATH." >&2

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define SYSTEM_CONTROL_SRCR2_OFFSET  0x048u
 #define SYSTEM_CONTROL_RIS_OFFSET    0x050u
 #define SYSTEM_CONTROL_MISC_OFFSET   0x058u
 #define SYSTEM_CONTROL_RCC_OFFSET    0x060u
@@ -57,6 +58,8 @@
 #define RCGC2_GPIOE_BIT  (1u << 4)
 #define RCGC2_GPIOF_BIT  (1u << 5)
 #define RCGC2_GPIOG_BIT  (1u << 6)
+#define RCGC2_EMAC0_BIT  (1u << 28)
+#define RCGC2_EPHY0_BIT  (1u << 30)
 
 void system_control_enable_peripheral_clock(uint32_t rc_register_offset, uint32_t bit_mask);
 bool system_control_configure_pll(void);

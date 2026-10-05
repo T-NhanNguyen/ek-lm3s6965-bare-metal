@@ -5,7 +5,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+// #include "image_escape_bits.h"
+#include "image_lumon_bits.h"
 #include "led.h"
+#include "oled.h"
 #include "system_control.h"
 #include "trace.h"
 #include "uart.h"
@@ -79,6 +82,13 @@ int main(void)
     trace_initialize(system_clock_hz, SWO_BAUD_RATE);
     user_led_initialize();
     user_led_write(false);
+
+    oled_initialize(system_clock_hz);
+    oled_clear_screen();
+    // oled_draw_image(image_escape_bits, IMAGE_ESCAPE_WIDTH, IMAGE_ESCAPE_HEIGHT,
+    //                 IMAGE_ESCAPE_BYTES_PER_ROW);
+    oled_draw_image(image_lumon_bits, IMAGE_LUMON_WIDTH, IMAGE_LUMON_HEIGHT,
+                    IMAGE_LUMON_BYTES_PER_ROW);
 
     printf("\n");
     printf("LM3S6965 FreeRTOS bring-up\n");

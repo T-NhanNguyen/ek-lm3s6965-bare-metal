@@ -8,6 +8,7 @@ add_library(lm3s6965_bsp OBJECT
     startup.c
     system_control.c
     gpio.c
+    ethernet.c
     led.c
     switch.c
     trace.c
