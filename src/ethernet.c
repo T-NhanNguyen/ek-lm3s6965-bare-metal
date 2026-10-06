@@ -1,6 +1,10 @@
 /* LM3S6965 datasheet chapter 15. MAC FIFOs are little-endian byte streams. */
 #include "ethernet.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "gpio.h"
 #include "memory_map.h"
 #include "system_control.h"
@@ -326,11 +330,15 @@ ethernet_result_t ethernet_try_transmit(const uint8_t *frame, size_t length)
 ethernet_result_t ethernet_read_frame(uint8_t *frame, size_t capacity,
                                       size_t *length)
 {
-    if ((length == NULL) || ((frame == NULL) && (capacity != 0u)))
+    if (length == NULL)
     {
         return ETHERNET_INVALID_ARGUMENT;
     }
     *length = 0u;
+    if ((frame == NULL) && (capacity != 0u))
+    {
+        return ETHERNET_INVALID_ARGUMENT;
+    }
     if (!initialized)
     {
         return ETHERNET_NOT_READY;

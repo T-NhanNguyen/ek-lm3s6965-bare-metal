@@ -52,6 +52,11 @@ python3 -m venv .venv
 `scripts/icdi-console.sh` finds this environment automatically. Set `PYFTDI_PYTHON` to point at a
 different interpreter.
 
+`scripts/ethernet-link-test.sh` also needs `python3` on `PATH`.
+Its evaluator uses only the Python standard library.
+Live capture also needs OpenOCD and the capture interpreter with `pyftdi`.
+Offline `--capture-file` evaluation needs neither OpenOCD nor `pyftdi`.
+
 ### Installing the Arm toolchain
 
 > ### ⚠️ Do not use the Homebrew formula `arm-none-eabi-gcc`
@@ -131,6 +136,11 @@ The build writes these files to `build/`:
 | `examples/freertos/lm3s6965_freertos_firmware.bin` | FreeRTOS raw binary for flashing |
 | `examples/freertos/lm3s6965_freertos_firmware.hex` | FreeRTOS Intel HEX for flashing |
 | `examples/freertos/lm3s6965_freertos_firmware.map` | FreeRTOS linker map |
+| `examples/ethernet-link/lm3s6965_ethernet_link` | PHY-only diagnostic ELF |
+| `examples/ethernet-raw/lm3s6965_ethernet_raw` | RAW frame diagnostic ELF |
+
+Both Ethernet targets also emit `.bin`, `.hex`, and `.map` files.
+They are distinct diagnostics, not IP or FTP applications.
 
 The bare-metal firmware now initializes the OLED, clears it, and draws the 128 x 72 LUMON image.
 `scripts/oled-brightness.sh <value>` sets contrast at runtime.
@@ -261,14 +271,65 @@ freertos/FreeRTOSConfig.h        FreeRTOS configuration and handler mapping
 freertos/hooks.c                 FreeRTOS hook and assertion callbacks
 examples/baremetal/              bare-metal example (main.c, CMakeLists.txt)
 examples/freertos/               FreeRTOS example (main.c, CMakeLists.txt)
+examples/ethernet-link/          PHY-only link diagnostic
+examples/ethernet-raw/           Bounded RAW request/reply diagnostic
+tools/                          Native macOS BPF helper and capture parser
 openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
 openocd/interface/               ICDI interface config for this board's 0403:bcd9 probe
 scripts/check-connection.sh      Cable and probe detection
 scripts/probe.sh                 Read-only connectivity check
 scripts/flash.sh                 Program, verify, reset
 scripts/console.sh               Read the UART0 console through a USB serial adapter
-scripts/icdi-console.sh          Read the SWO console through the on-board ICDI
+scripts/icdi-console.sh          Capture the SWO startup marker through the ICDI
+scripts/ethernet-link-test.sh    Capture and evaluate Ethernet PHY link samples
+scripts/ethernet_link_test.py    Standard-library live or offline link evaluator
+scripts/ethernet-raw-test.sh     Native host build, offline tests, or RAW exchange
+tests/raw_protocol_test.c       Offline RAW protocol tests
+tests/ethernet_raw_capture_test.c  Offline native BPF parser/filter tests
 ```
+
+## Ethernet diagnostics
+
+The board currently runs `lm3s6965_ethernet_raw`, not the link diagnostic.
+RAW initialization and negotiated readiness were observed. No live host
+frame experiment or elevated helper execution has run.
+IP, FTP, and full-MTU operation remain untested.
+
+Build the native macOS helper as a regular user without device access:
+
+```bash
+scripts/ethernet-raw-test.sh --build-only
+scripts/ethernet-raw-test.sh --self-test
+```
+
+BPF needs narrow read/write access. The observed root-owned `0600` devices
+block nonroot access. No automatic sudo or permission changes occur.
+After approval, explicitly run the already-built helper:
+
+```bash
+sudo ./build/host/ethernet_raw_test en7
+```
+
+The helper drops privileges but retains its open BPF packet capability.
+`RAW FRAME PASS` requires three exact incoming 60-byte replies.
+See [Ethernet evidence](docs/ethernet.md#raw-frame-experiment) for the
+frame contract, exact output, bounds, and optional two-terminal capture.
+
+### PHY-only link check
+
+Only with `lm3s6965_ethernet_link` flashed, run from the repository root.
+Do not use this wrapper with RAW. It resets and rejects the RAW identity:
+
+```bash
+scripts/ethernet-link-test.sh --seconds 10 --baud 1000000
+```
+
+This command resets the target. It does not flash, change host network
+settings, or transmit frames. `CONSOLE CAPTURE OK` means startup-marker
+reception only. `ETHERNET LINK PASS` means the observed samples meet the
+link criteria. It does not accept frame transfer, IP, FTP, or cable cycling.
+See [Ethernet reference and evidence](docs/ethernet.md) for criteria,
+output, prerequisites, and offline saved-text evaluation.
 
 ## Known limitations
 
@@ -290,7 +351,8 @@ scripts/icdi-console.sh          Read the SWO console through the on-board ICDI
   the shared pin carries JTAG data. No serial adapter is needed.
 - **The project implements only UART0 among the serial ports.** GPIO, the user LED, the switches,
   SysTick, and the ITM trace block work. The project does not implement UART1, UART2, SSI, I2C,
-  PWM, QEI, ADC, the general-purpose timers, or Ethernet.
+  PWM, QEI, ADC, or the general-purpose timers. Ethernet has a BSP driver
+  and separate link/RAW diagnostics, but no IP or FTP implementation.
 - **QEMU runs the console slowly.** The firmware paces each ITM write on the stimulus port ready
   bit. QEMU does not model the ITM, so each byte spins the bounded wait loop. A full banner takes
   about 45 seconds. Use a capture window of 45 seconds or more.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Read the LM3S6965 console through the on-board ICDI, over SWO.
+# Capture the LM3S6965 console through the on-board ICDI, over SWO.
+# Success means a startup marker was received, not peripheral acceptance.
 #
 # Usage:
 #   scripts/icdi-console.sh [--seconds N] [--baud RATE] [--raw]
@@ -43,7 +44,9 @@ usage: scripts/icdi-console.sh [options]
   --raw         print the raw captured bytes as hex as well
   -h, --help    show this help
 
-Reads the console through the on-board ICDI over SWO. No serial adapter needed.
+Captures the console through the on-board ICDI over SWO.
+No serial adapter needed. Success means the startup marker was received.
+Peripheral operation was not evaluated.
 USAGE
 }
 
@@ -53,7 +56,8 @@ while [[ $# -gt 0 ]]; do
         --baud) SWO_BAUD_RATE="${2:-}"; shift 2 ;;
         --raw) SHOW_RAW=true; shift ;;
         -h|--help) usage; exit 0 ;;
-        *) echo "error: unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *) echo "CONSOLE CAPTURE FAIL: unknown option: $1" >&2
+           usage >&2; exit 1 ;;
     esac
 done
 
@@ -72,12 +76,13 @@ find_python_with_pyftdi() {
 }
 
 if ! command -v openocd >/dev/null 2>&1; then
-    echo "error: openocd not found on PATH -- install with 'brew install openocd'" >&2
+    echo "CONSOLE CAPTURE FAIL: openocd not found on PATH." >&2
+    echo "Install with 'brew install openocd'." >&2
     exit 1
 fi
 
 if ! PYTHON_INTERPRETER=$(find_python_with_pyftdi); then
-    echo "error: no Python interpreter with pyftdi was found." >&2
+    echo "CONSOLE CAPTURE FAIL: no Python interpreter with pyftdi found." >&2
     echo >&2
     echo "Install it into a virtual environment:" >&2
     echo "  python3 -m venv .venv" >&2
@@ -179,7 +184,7 @@ try:
               lambda: device.open(ICDI_VENDOR_ID, ICDI_PRODUCT_ID,
                                   interface=ICDI_SECOND_CHANNEL))
 except IcdiError as error:
-    raise SystemExit(str(error))
+    raise SystemExit("CONSOLE CAPTURE FAIL: %s" % error)
 
 time.sleep(0.3)
 
@@ -189,6 +194,7 @@ time.sleep(0.3)
 try:
     retry_usb("flush its buffers", device.purge_buffers, attempts=2)
 except IcdiError as error:
+    print("ICDI CAPTURE WARNING: flush-error")
     print("warning: %s" % error)
     print("warning: continuing without a flush; leading bytes may be stale.")
 
@@ -199,7 +205,7 @@ try:
     retry_usb("accept %d baud" % SWO_BAUD_RATE,
               lambda: device.set_baudrate(SWO_BAUD_RATE))
 except IcdiError as error:
-    raise SystemExit(str(error))
+    raise SystemExit("CONSOLE CAPTURE FAIL: %s" % error)
 
 print("Listening on the ICDI at %d 8N1 ..." % SWO_BAUD_RATE)
 
@@ -237,6 +243,7 @@ print()
 print("Captured %d bytes, decoded %d characters from ITM stimulus port 0."
       % (len(captured), len(text)))
 if read_errors:
+    print("ICDI CAPTURE WARNING: read-error")
     print("warning: %d read errors; first was: %s"
           % (len(read_errors), read_errors[0]))
 if SHOW_RAW:
@@ -244,7 +251,7 @@ if SHOW_RAW:
 print("-" * 62)
 
 if not text:
-    print("(no console text)")
+    print("CONSOLE CAPTURE FAIL: no console text received")
     print("-" * 62)
     print("Checks:")
     print("  - Did the probe stay attached for the whole capture? The board's CPLD")
@@ -254,15 +261,25 @@ if not text:
     print("  - Did the firmware call trace_initialize()?")
     raise SystemExit(1)
 
+# Keep the console readable without hiding a missing firmware terminator.
+# Boundaries separate helper output from firmware; warnings are transport
+# evidence, not a change to the generic startup-marker reception criterion.
+if not text.endswith(b"\n"):
+    print("ICDI CAPTURE WARNING: unterminated-decoded-text")
+print("ICDI DECODED TEXT BEGIN")
 sys.stdout.write(text.decode("utf-8", errors="replace"))
 if not text.endswith(b"\n"):
     print()
+print("ICDI DECODED TEXT END")
 print("-" * 62)
 
 if BANNER_MARKER in text.decode("utf-8", errors="replace"):
-    print("PASS: console received over SWO through the ICDI")
+    print("CONSOLE CAPTURE OK: startup marker %r received over SWO through "
+          "the ICDI" % BANNER_MARKER)
+    print("Peripheral operation was not evaluated.")
     raise SystemExit(0)
 
-print("Bytes arrived, but the banner marker %r was not found." % BANNER_MARKER)
+print("CONSOLE CAPTURE FAIL: bytes arrived, but startup marker %r was not "
+      "received." % BANNER_MARKER)
 raise SystemExit(1)
 PYTHON

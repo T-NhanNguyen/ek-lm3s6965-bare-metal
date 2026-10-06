@@ -46,10 +46,34 @@ Capture the banner. Install `pyftdi` first, as in [Required packages](../README.
 scripts/icdi-console.sh
 ```
 
-The script finds a Python interpreter with `pyftdi`, opens the ICDI second channel, starts
-the reader, then resets the target. The order matters, because the firmware prints the
-banner one time only. The output ends with `lm3s6965 bring-up complete`, and the script
-prints `PASS: console received over SWO through the ICDI`.
+The script needs `openocd` on `PATH` and a Python interpreter with `pyftdi`.
+It tries `PYFTDI_PYTHON`, the repository `.venv/bin/python`, then `python3`.
+It opens the ICDI second channel, starts the reader, then resets the target.
+The order matters because the firmware prints the banner one time only.
+It does not flash or change host network settings.
+
+Success means only that decoded text contains `bring-up complete`.
+The script returns exit status 0. Its first result line joins these
+exact strings with one space:
+
+- `CONSOLE CAPTURE OK: startup marker 'bring-up complete'`
+- `received over SWO through the ICDI`
+
+Its next line is `Peripheral operation was not evaluated.`
+
+The marker can arrive even when Ethernet initialization or link fails.
+Use [the Ethernet link evaluator](ethernet.md) for link acceptance.
+Historical captures used `PASS: console received over SWO through the ICDI`.
+That old output also meant console reception only.
+
+New captures frame firmware text with `ICDI DECODED TEXT BEGIN` and
+`ICDI DECODED TEXT END`. Keep both boundaries and all warning lines
+when saving text. `ICDI CAPTURE WARNING:` records flush errors, read
+errors, or an unterminated decoded payload. The helper adds a display
+newline for an unterminated payload, but preserves its warning.
+Warnings do not change the generic startup-marker success criterion.
+The Ethernet evaluator rejects transport warnings even after capture
+success. Do not remove them before offline evaluation.
 
 | Option | Effect |
 |---|---|
