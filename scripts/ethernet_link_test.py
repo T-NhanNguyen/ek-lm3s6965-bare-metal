@@ -1,6 +1,7 @@
 """Evaluate one Ethernet link diagnostic run using only the standard library."""
 
 import argparse
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -22,6 +23,17 @@ LIMITS = (
 SEPARATOR = "-" * 62
 BEGIN = "ICDI DECODED TEXT BEGIN"
 END = "ICDI DECODED TEXT END"
+PROBE_STDERR = "ICDI PROBE STDERR: "
+CAPTURE_FAILURE = re.compile(
+    r"ICDI CAPTURE FAILURE: (?:probe-exit status=-?[0-9]+|"
+    r"probe-command-error|probe-command-unconfirmed|probe-launch-error|"
+    r"probe-inspection-error|probe-diagnostics-overflow|"
+    r"lifecycle-(?:device-construct|device-open|setup-sleep|device-flush|"
+    r"device-config|thread-start|reader-sleep|diagnostic-open|reader-stop|"
+    r"reader-status|reader-join|reader-live|snapshot|probe-status|"
+    r"probe-terminate|probe-wait|probe-kill|probe-reap|diagnostic-read|"
+    r"diagnostic-close|device-close|report))"
+)
 HELPER_LINES = (
     re.compile(r"Listening on the ICDI at [0-9]+ 8N1 \.\.\."),
     re.compile(r"Captured [0-9]+ bytes, decoded [0-9]+ characters from ITM stimulus port 0\."),
@@ -34,6 +46,7 @@ HELPER_FIXED = {
     "The probe stays attached for the whole capture window, because the board's",
     "CPLD routes SWO only while the probe asserts its SWD_EN line.",
     "Peripheral operation was not evaluated.",
+    "ICDI PROBE STATUS: init-reset-run completed, alive before teardown",
     "PASS: console received over SWO through the ICDI",
 }
 STARTUP = (
@@ -54,6 +67,10 @@ def decoded_payload(text):
     lines = text.splitlines(keepends=True)
     stripped = [line.rstrip("\r\n") for line in lines]
     for line in stripped:
+        if line.startswith("ICDI CAPTURE FAILURE:"):
+            if not CAPTURE_FAILURE.fullmatch(line):
+                raise ValueError("invalid capture failure metadata")
+            raise ValueError("capture transport evidence problem: " + line)
         if line.startswith(("ICDI CAPTURE WARNING:", "warning:")):
             raise ValueError("capture transport evidence problem: " + line)
     if BEGIN in stripped or END in stripped:
@@ -72,6 +89,15 @@ def decoded_payload(text):
     else:
         return text
     for line in stripped[:start] + stripped[end + 1:]:
+        if line.startswith(PROBE_STDERR):
+            # JSON strings keep child diagnostics distinct from firmware.
+            try:
+                diagnostic = json.loads(line[len(PROBE_STDERR):])
+            except ValueError as error:
+                raise ValueError("invalid probe stderr metadata") from error
+            if not isinstance(diagnostic, str):
+                raise ValueError("invalid probe stderr metadata")
+            continue
         if line not in HELPER_FIXED and not any(
             pattern.fullmatch(line) for pattern in HELPER_LINES
         ):
@@ -168,7 +194,8 @@ def main(argv=None, capture_runner=None):
             "saved decoded text only, with no reset or device access. It "
             "cannot establish capture exit status or live provenance. "
             "Accepts bare firmware text, ICDI DECODED TEXT BEGIN/END framed "
-            "captures (retain all ICDI CAPTURE WARNING lines), and historical "
+            "captures (retain all ICDI CAPTURE WARNING, FAILURE, and probe "
+            "diagnostic lines), and historical "
             "two-separator helper captures. Historical captures cannot prove "
             "that the old helper did not normalize a missing newline. "
             + LIMITS + " Sample indices do not measure wall-clock duration."

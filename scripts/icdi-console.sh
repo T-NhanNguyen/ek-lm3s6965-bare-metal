@@ -95,17 +95,29 @@ fi
 
 exec "$PYTHON_INTERPRETER" - "$BOARD_CONFIG" "$SWO_BAUD_RATE" "$CAPTURE_SECONDS" \
     "$SHOW_RAW" "$BANNER_MARKER" <<'PYTHON'
-import collections
+import json
+import math
+import os
+import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
 from pyftdi.ftdi import Ftdi
 
-BOARD_CONFIG, SWO_BAUD_RATE, CAPTURE_SECONDS, SHOW_RAW, BANNER_MARKER = (
-    sys.argv[1], int(sys.argv[2]), float(sys.argv[3]),
-    sys.argv[4] == "true", sys.argv[5])
+try:
+    CAPTURE_SECONDS = float(sys.argv[3])
+except ValueError:
+    CAPTURE_SECONDS = float("nan")
+if not math.isfinite(CAPTURE_SECONDS) or CAPTURE_SECONDS <= 0:
+    print("CONSOLE CAPTURE FAIL: --seconds must be finite and positive.",
+          file=sys.stderr)
+    raise SystemExit(1)
+
+BOARD_CONFIG, SWO_BAUD_RATE, SHOW_RAW, BANNER_MARKER = (
+    sys.argv[1], int(sys.argv[2]), sys.argv[4] == "true", sys.argv[5])
 
 ICDI_VENDOR_ID, ICDI_PRODUCT_ID = 0x0403, 0xbcd9
 ICDI_SECOND_CHANNEL = 2
@@ -116,6 +128,17 @@ SIZE_CODE_SHIFT = 1
 PORT_SHIFT = 3
 USB_RETRY_ATTEMPTS = 5
 USB_RETRY_DELAY_SECONDS = 0.6
+PROBE_CHECK_SECONDS = 0.1
+PROBE_DIAGNOSTIC_LIMIT = 65536
+PROBE_READY = "ICDI PROBE READY: init-reset-run"
+# A command completion receipt, not a firmware marker or physical reset proof.
+# Reset run can catch examination errors internally. Reject Error logs too.
+PROBE_COMMAND = (
+    "init; reset run; "
+    "if {![lm3s6965.cpu was_examined]} {error {target not examined}}; "
+    "echo {" + PROBE_READY + "}"
+)
+PROBE_ERROR = re.compile(r"^Error\s*:", re.MULTILINE)
 
 
 class IcdiError(RuntimeError):
@@ -164,122 +187,241 @@ def read_itm_stimulus_port_zero(data):
 captured = bytearray()
 read_errors = []
 stop_reading = threading.Event()
+reader_completed = threading.Event()
 
 
 def reader(device):
-    while not stop_reading.is_set():
-        try:
+    try:
+        while not stop_reading.is_set():
             chunk = device.read_data(64)
-        except Exception as error:
-            read_errors.append(str(error))
-            time.sleep(0.05)
-            continue
-        if chunk:
-            captured.extend(chunk)
+            if chunk:
+                captured.extend(chunk)
+    except BaseException as error:
+        # A failed reader stops. Never lose a thread exception or retry forever.
+        read_errors.append(str(error))
+    finally:
+        # Publish only after the last device and capture-buffer access.
+        reader_completed.set()
 
 
-device = Ftdi()
+device = None
+reading_thread = None
+reader_start_attempted = False
+probe = None
+probe_stderr = None
+probe_failure = None
+probe_diagnostics = b""
+lifecycle_errors = []
+snapshot = b""
+stage = "device-construct"
+
+
+def failure(code, error=None):
+    """Keep the first failure primary and retain every secondary diagnostic."""
+    global probe_failure
+    probe_failure = probe_failure or code
+    if error is not None:
+        lifecycle_errors.append((code, str(error)))
+
+
+def cleanup(code, operation):
+    try:
+        return operation()
+    except BaseException as error:
+        failure("lifecycle-" + code, error)
+        return None
+
+
 try:
+    device = Ftdi()
+    stage = "device-open"
     retry_usb("open the second channel",
               lambda: device.open(ICDI_VENDOR_ID, ICDI_PRODUCT_ID,
                                   interface=ICDI_SECOND_CHANNEL))
-except IcdiError as error:
-    raise SystemExit("CONSOLE CAPTURE FAIL: %s" % error)
-
-time.sleep(0.3)
-
-# Flush before touching the pin mode or the baud rate. Purging straight after
-# set_baudrate times out on this FT2232D, and a flush is a nicety anyway: the
-# decoder skips protocol packets and the text is matched against the marker.
-try:
-    retry_usb("flush its buffers", device.purge_buffers, attempts=2)
-except IcdiError as error:
-    print("ICDI CAPTURE WARNING: flush-error")
-    print("warning: %s" % error)
-    print("warning: continuing without a flush; leading bytes may be stale.")
-
-try:
+    stage = "setup-sleep"
+    time.sleep(0.3)
+    # Preserve the optional flush warning and its link-rejection contract.
+    stage = "device-flush"
+    try:
+        retry_usb("flush its buffers", device.purge_buffers, attempts=2)
+    except IcdiError as error:
+        print("ICDI CAPTURE WARNING: flush-error")
+        print("warning: %s" % error)
+        print("warning: continuing without a flush; "
+              "leading bytes may be stale.")
+    stage = "device-config"
     retry_usb("reset the pin mode",
               lambda: device.set_bitmode(0x00, Ftdi.BitMode.RESET))
     device.timeouts = (1, 1)
     retry_usb("accept %d baud" % SWO_BAUD_RATE,
               lambda: device.set_baudrate(SWO_BAUD_RATE))
-except IcdiError as error:
-    raise SystemExit("CONSOLE CAPTURE FAIL: %s" % error)
+    stage = "report"
+    print("Listening on the ICDI at %d 8N1 ..." % SWO_BAUD_RATE)
+    stage = "thread-start"
+    reading_thread = threading.Thread(
+        target=reader, args=(device,), daemon=True)
+    # start can launch natively before interruption of startup publication.
+    reader_start_attempted = True
+    reading_thread.start()
+    stage = "reader-sleep"
+    time.sleep(READER_STARTUP_GRACE_SECONDS)
+    stage = "report"
+    print("Resetting the target -- the banner is printed once, right now.")
+    print("The probe stays attached for the whole capture window, "
+          "because the board's")
+    print("CPLD routes SWO only while the probe asserts its SWD_EN line.")
+    stage = "diagnostic-open"
+    # A regular spool avoids an undrained PIPE. Only reads are bounded.
+    probe_stderr = tempfile.TemporaryFile()
+    stage = "probe-launch"
+    probe = subprocess.Popen(
+        ["openocd", "-f", BOARD_CONFIG, "-c", PROBE_COMMAND],
+        stdout=subprocess.DEVNULL, stderr=probe_stderr)
+    stage = "probe-inspection"
+    capture_started = time.monotonic()
+    while True:
+        status = probe.poll()
+        if status is not None:
+            failure("probe-exit status=%d" % status)
+            break
+        elapsed = time.monotonic() - capture_started
+        if elapsed >= CAPTURE_SECONDS:
+            break
+        time.sleep(min(PROBE_CHECK_SECONDS, CAPTURE_SECONDS - elapsed))
+    probe_diagnostics = os.pread(
+        probe_stderr.fileno(), PROBE_DIAGNOSTIC_LIMIT + 1, 0)
+    diagnostics = probe_diagnostics.decode("utf-8", errors="replace")
+    if len(probe_diagnostics) > PROBE_DIAGNOSTIC_LIMIT:
+        failure("probe-diagnostics-overflow")
+    elif PROBE_ERROR.search(diagnostics):
+        failure("probe-command-error")
+    elif diagnostics.splitlines().count(PROBE_READY) != 1:
+        failure("probe-command-unconfirmed")
+    status = probe.poll()
+    if status is not None:
+        failure("probe-exit status=%d" % status)
+except BaseException as error:
+    code = (stage + "-error" if stage.startswith("probe-")
+            else "lifecycle-" + stage)
+    failure(code, error)
+finally:
+    cleanup("reader-stop", stop_reading.set)
+    reader_stopped = not reader_start_attempted
+    if reader_start_attempted:
+        cleanup("reader-join", lambda: reading_thread.join(timeout=2))
+        terminated = cleanup(
+            "reader-status", reading_thread.is_alive) is False
+        completed = cleanup(
+            "reader-status", reader_completed.is_set) is True
+        # False also describes unpublished startup, and an interrupted join
+        # can corrupt Thread's termination bookkeeping. Require our own final
+        # access boundary too. A failed start remains uncertain until then.
+        reader_stopped = terminated and completed
+        if not reader_stopped:
+            failure("lifecycle-reader-live")
+    if reader_stopped:
+        snapshot = cleanup("snapshot", lambda: bytes(captured)) or b""
+    # A live daemon retains exclusive device ownership until process exit.
+    # Do not snapshot or close its handle. Fail without an unbounded join.
+    if probe is not None:
+        status = cleanup("probe-status", probe.poll)
+        if status is None:
+            cleanup("probe-terminate", probe.terminate)
+            # Preserve H1's cached natural-exit discovery inside terminate.
+            status = cleanup("probe-status", lambda: probe.returncode)
+        if status is not None:
+            failure("probe-exit status=%d" % status)
+        try:
+            probe.wait(timeout=5)
+        except BaseException as error:
+            if not isinstance(error, subprocess.TimeoutExpired):
+                failure("lifecycle-probe-wait", error)
+            cleanup("probe-kill", probe.kill)
+            cleanup("probe-reap", lambda: probe.wait(timeout=5))
+    if probe_stderr is not None:
+        final_diagnostics = cleanup(
+            "diagnostic-read", lambda: os.pread(
+                probe_stderr.fileno(), PROBE_DIAGNOSTIC_LIMIT + 1, 0))
+        if final_diagnostics is not None:
+            probe_diagnostics = final_diagnostics
+        cleanup("diagnostic-close", probe_stderr.close)
+    if device is not None and reader_stopped:
+        cleanup("device-close", device.close)
 
-print("Listening on the ICDI at %d 8N1 ..." % SWO_BAUD_RATE)
+if len(probe_diagnostics) > PROBE_DIAGNOSTIC_LIMIT:
+    failure("probe-diagnostics-overflow")
+if PROBE_ERROR.search(probe_diagnostics.decode("utf-8", errors="replace")):
+    failure("probe-command-error")
 
-reading_thread = threading.Thread(target=reader, args=(device,), daemon=True)
-reading_thread.start()
-time.sleep(READER_STARTUP_GRACE_SECONDS)
 
-print("Resetting the target -- the banner is printed once, right now.")
-print("The probe stays attached for the whole capture window, because the board's")
-print("CPLD routes SWO only while the probe asserts its SWD_EN line.")
+def report():
+    for diagnostic in probe_diagnostics[:PROBE_DIAGNOSTIC_LIMIT].decode(
+            "utf-8", errors="replace").splitlines():
+        print("ICDI PROBE STDERR: " + json.dumps(diagnostic))
+    for code, detail in lifecycle_errors:
+        print("ICDI PROBE STDERR: " + json.dumps(code + ": " + detail))
+        print("ICDI CAPTURE FAILURE: " + code)
+    if probe_failure is not None:
+        print("ICDI CAPTURE FAILURE: " + probe_failure)
+    else:
+        print("ICDI PROBE STATUS: init-reset-run completed, "
+              "alive before teardown")
+    text = read_itm_stimulus_port_zero(snapshot)
 
-probe = subprocess.Popen(
-    ["openocd", "-f", BOARD_CONFIG, "-c", "init", "-c", "reset"],
-    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-time.sleep(CAPTURE_SECONDS)
-
-stop_reading.set()
-reading_thread.join(timeout=2)
-
-probe.terminate()
-try:
-    probe.wait(timeout=5)
-except subprocess.TimeoutExpired:
-    probe.kill()
-
-try:
-    device.close()
-except Exception:
-    pass
-
-text = read_itm_stimulus_port_zero(captured)
-
-print()
-print("Captured %d bytes, decoded %d characters from ITM stimulus port 0."
-      % (len(captured), len(text)))
-if read_errors:
-    print("ICDI CAPTURE WARNING: read-error")
-    print("warning: %d read errors; first was: %s"
-          % (len(read_errors), read_errors[0]))
-if SHOW_RAW:
-    print("raw:", bytes(captured[:64]).hex(" "))
-print("-" * 62)
-
-if not text:
-    print("CONSOLE CAPTURE FAIL: no console text received")
-    print("-" * 62)
-    print("Checks:")
-    print("  - Did the probe stay attached for the whole capture? The board's CPLD")
-    print("    routes SWO only while the probe asserts SWD_EN.")
-    print("  - Is the probe in SWD mode? The board config defaults to swd.")
-    print("  - Does --baud match SWO_BAUD_RATE in examples/baremetal/main.c?")
-    print("  - Did the firmware call trace_initialize()?")
-    raise SystemExit(1)
-
-# Keep the console readable without hiding a missing firmware terminator.
-# Boundaries separate helper output from firmware; warnings are transport
-# evidence, not a change to the generic startup-marker reception criterion.
-if not text.endswith(b"\n"):
-    print("ICDI CAPTURE WARNING: unterminated-decoded-text")
-print("ICDI DECODED TEXT BEGIN")
-sys.stdout.write(text.decode("utf-8", errors="replace"))
-if not text.endswith(b"\n"):
     print()
-print("ICDI DECODED TEXT END")
-print("-" * 62)
+    print("Captured %d bytes, decoded %d characters from ITM stimulus port 0."
+          % (len(snapshot), len(text)))
+    if read_errors:
+        print("ICDI CAPTURE WARNING: read-error")
+        print("warning: %d read errors; first was: %s"
+              % (len(read_errors), read_errors[0]))
+    if SHOW_RAW:
+        print("raw:", snapshot[:64].hex(" "))
+    print("-" * 62)
+    if not text:
+        print("CONSOLE CAPTURE FAIL: no console text received")
+        print("-" * 62)
+        print("Checks:")
+        print("  - Did the probe stay attached for the whole capture?")
+        print("    The board's CPLD routes SWO only while SWD_EN is asserted.")
+        print("  - Is the probe in SWD mode? The board config defaults to swd.")
+        print("  - Does --baud match SWO_BAUD_RATE "
+              "in examples/baremetal/main.c?")
+        print("  - Did the firmware call trace_initialize()?")
+        return 1
+    # Preserve missing-terminator evidence and decoded firmware boundaries.
+    if not text.endswith(b"\n"):
+        print("ICDI CAPTURE WARNING: unterminated-decoded-text")
+    print("ICDI DECODED TEXT BEGIN")
+    sys.stdout.write(text.decode("utf-8", errors="replace"))
+    if not text.endswith(b"\n"):
+        print()
+    print("ICDI DECODED TEXT END")
+    print("-" * 62)
+    if probe_failure is not None:
+        print("CONSOLE CAPTURE FAIL: probe transport failed")
+        return 1
+    if BANNER_MARKER in text.decode("utf-8", errors="replace"):
+        print("Peripheral operation was not evaluated.")
+        print("CONSOLE CAPTURE OK: startup marker %r received over SWO through "
+              "the ICDI" % BANNER_MARKER)
+        return 0
+    print("CONSOLE CAPTURE FAIL: bytes arrived, but startup marker %r was not "
+          "received." % BANNER_MARKER)
+    return 1
 
-if BANNER_MARKER in text.decode("utf-8", errors="replace"):
-    print("CONSOLE CAPTURE OK: startup marker %r received over SWO through "
-          "the ICDI" % BANNER_MARKER)
-    print("Peripheral operation was not evaluated.")
-    raise SystemExit(0)
 
-print("CONSOLE CAPTURE FAIL: bytes arrived, but startup marker %r was not "
-      "received." % BANNER_MARKER)
-raise SystemExit(1)
+try:
+    result = report()
+    sys.stdout.flush()
+except BaseException as error:
+    failure("lifecycle-report", error)
+    # A broken stdout cannot reliably carry metadata. Keep a separate fallback.
+    for code, detail in lifecycle_errors:
+        sys.stderr.write("ICDI PROBE STDERR: "
+                         + json.dumps(code + ": " + detail) + "\n")
+    sys.stderr.write("ICDI CAPTURE FAILURE: " + probe_failure + "\n")
+    sys.stderr.write("ICDI CAPTURE FAILURE: lifecycle-report\n")
+    result = 1
+raise SystemExit(result)
 PYTHON

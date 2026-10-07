@@ -364,6 +364,13 @@ fails acceptance, even if later samples are healthy. Malformed, unknown,
 or truncated firmware text also fails acceptance.
 The evaluator rejects `ICDI CAPTURE WARNING:` and `warning:` lines,
 including flush errors, read errors, and unterminated decoded text.
+It also rejects `ICDI CAPTURE FAILURE:` records despite healthy samples.
+These include fixed `lifecycle-` acquisition, reader, cleanup, and reporting failures.
+A live reader timeout denies acceptance and prevents an unsafe device close.
+Successful decoding uses an immutable snapshot after verified reader termination.
+Malformed or unknown probe metadata cannot establish acceptance.
+Probe stderr uses JSON strings outside decoded firmware boundaries.
+See [console capture](console.md) for command receipts and probe status limits.
 A generic `CONSOLE CAPTURE OK` can therefore precede a link failure.
 
 On success, exit status is 0. The result line starts with
@@ -420,15 +427,17 @@ The evaluator accepts bare firmware text, new framed helper output,
 and historical helper output with two separator lines.
 For new captures, retain both `ICDI DECODED TEXT BEGIN` and
 `ICDI DECODED TEXT END` boundaries and all warning lines.
+Retain all capture failure, probe status, and probe stderr metadata.
 Do not trim metadata or convert a damaged capture into apparent success.
 Historical captures cannot prove that the old helper did not normalize
 an absent firmware newline. Offline PASS checks the saved text only.
 It cannot establish live provenance or the original capture exit status.
 
-The new evaluator was tested offline with prior real capture logs and
-15 fixture/process-seam tests. These tests mock hardware and capture
-operations. No fresh physical test ran for the evaluator update.
-The user is running the live command independently.
+Historical evaluator checkpoint: prior real capture logs and 15 offline
+fixture/process-seam tests were checked; no fresh physical test ran.
+That count is superseded by the latest offline validation: 23 link tests
+and 18 capture-lifecycle tests passed with mocked hardware and capture
+operations. These results make no hardware or current user-activity claim.
 
 ### Historical initial physical run: 2026-10-05
 

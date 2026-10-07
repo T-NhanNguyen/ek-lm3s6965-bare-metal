@@ -52,14 +52,15 @@ It opens the ICDI second channel, starts the reader, then resets the target.
 The order matters because the firmware prints the banner one time only.
 It does not flash or change host network settings.
 
-Success means only that decoded text contains `bring-up complete`.
-The script returns exit status 0. Its first result line joins these
+Success requires `bring-up complete` and confirmed probe command completion.
+OpenOCD must remain alive until the helper starts teardown.
+The script returns exit status 0. Its final result line joins these
 exact strings with one space:
 
 - `CONSOLE CAPTURE OK: startup marker 'bring-up complete'`
 - `received over SWO through the ICDI`
 
-Its next line is `Peripheral operation was not evaluated.`
+The preceding line is `Peripheral operation was not evaluated.`
 
 The marker can arrive even when Ethernet initialization or link fails.
 Use [the Ethernet link evaluator](ethernet.md) for link acceptance.
@@ -72,12 +73,60 @@ when saving text. `ICDI CAPTURE WARNING:` records flush errors, read
 errors, or an unterminated decoded payload. The helper adds a display
 newline for an unterminated payload, but preserves its warning.
 Warnings do not change the generic startup-marker success criterion.
+Probe failures do change that criterion and return nonzero.
 The Ethernet evaluator rejects transport warnings even after capture
 success. Do not remove them before offline evaluation.
 
+OpenOCD runs `init`, then `reset run`, then checks target examination.
+It emits a command receipt only after those commands complete.
+The helper requires that receipt and rejects OpenOCD `Error` diagnostics.
+Command completion does not independently prove a physical reset.
+An unexpected probe exit fails capture, including exit status zero.
+A nonzero result after requested termination alone does not fail capture.
+
+`ICDI CAPTURE FAILURE:` records probe exit, command, launch,
+or inspection failure.
+Missing command receipts and oversized diagnostics also fail capture.
+`ICDI PROBE STDERR:` retains diagnostics as JSON strings outside
+firmware boundaries.
+The helper spools stderr to a temporary file, avoiding an undrained pipe.
+It retains at most 65536 diagnostic bytes and rejects larger output.
+Keep all failure and probe metadata when saving a capture.
+
+### Capture resource ownership
+
+Cleanup covers partial device setup, reader startup, and probe launch.
+The helper signals reader stop and joins for at most two seconds.
+It verifies termination before taking an immutable byte snapshot.
+Decoding and `--raw` use that snapshot, not the shared reader buffer.
+The device closes only after reader termination is verified.
+
+A reader that cannot stop retains its device handle until process exit.
+The helper does not close that handle or snapshot its mutable buffer.
+It denies acceptance and retains the first failure as primary.
+Without an earlier failure, it reports
+`ICDI CAPTURE FAILURE: lifecycle-reader-live`.
+With an earlier failure, secondary reader uncertainty still prevents snapshot and closure.
+Secondary operation exceptions retain their failure codes and JSON details.
+The daemon cannot delay helper exit indefinitely.
+This policy avoids concurrent device closure, not every possible USB failure.
+
+The helper terminates a live probe and waits for at most five seconds.
+A wait timeout triggers kill and a final five-second reap attempt.
+Cleanup errors remain separate from the first failure.
+Fixed `lifecycle-` failure records cover acquisition, cleanup, snapshot, and reporting.
+Error details use JSON diagnostic strings, not firmware records.
+All lifecycle failures deny capture and saved-text link acceptance.
+Reporting failures use stderr when stdout cannot carry diagnostics.
+An unusable output stream cannot provide a complete saved capture.
+
+The stderr spool closes after the reap attempt, including failed attempts.
+A failed kill or reap remains an error, not proof of child termination.
+Spooling avoids pipe deadlock but does not impose a disk-usage limit.
+
 | Option | Effect |
 |---|---|
-| `--seconds N` | Capture window in seconds. The default is 4. |
+| `--seconds N` | Finite, positive capture window in seconds. The default is 4. |
 | `--baud RATE` | SWO rate. It must match `SWO_BAUD_RATE`. The default is 1000000. |
 | `--raw` | Also print the raw captured bytes as hex. |
 
