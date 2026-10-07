@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 import ethernet_link_test as fixtures
 
 
-SOURCE = fixtures.MODULE_PATH.with_name("icdi-console.sh").read_text()
+SOURCE = (fixtures.MODULE_PATH.parents[2] / "icdi-console.sh").read_text()
 SOURCE = SOURCE.split("<<'PYTHON'\n", 1)[1].rsplit("\nPYTHON", 1)[0]
 FIRMWARE = (fixtures.HEADER + "Ethernet diagnostic bring-up complete. "
             "Link acceptance pending\n"

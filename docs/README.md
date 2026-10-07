@@ -13,6 +13,13 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,
   native macOS host script, exact frame contract, permissions, and readiness.
+  It preserves historical host and physical link observations without claiming IP or FTP acceptance.
+- [Offline FTP source and future test](ftp.md) — opt-in build, pinned lwIP, approved RAM contract,
+  final resource accounting, offline packet tests, and an authorization-gated curl byte comparison.
+- [Reusable FTP libraries](ftp-library.md) — public core, TCP, and RAM APIs, caller-owned storage,
+  binding/reset lifetimes, CMake reuse, and dedicated pinned lwIP limits.
+- [Ethernet tooling](../scripts/ethernet/README.md) — relocated tree, consolidated offline suites,
+  retained coverage, compile/link-only consumer, and separate authorization-gated live launchers.
 - [Toolchain](toolchain.md) — why the build uses the official Arm toolchain and its startup contract.
 - [Conventions](conventions.md) — include guards, constant representation, and datasheet authority.
 - [Function index](function-index.md) — the source functions and their descriptions.

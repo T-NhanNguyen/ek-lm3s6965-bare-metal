@@ -8,6 +8,74 @@ The user reported elevated helper failures before the frame experiment.
 The corrected helper's elevated retry and raw-frame exchange remain unverified.
 Bidirectional frame exchange, IP, FTP, and cable-cycle recovery remain untested.
 
+## Host observations and completed offline FTP source
+
+These observations come from the session record, not new checks in this documentation pass.
+The record supplies no timestamp for the latest local check.
+Earlier dated captures below remain historical evidence.
+
+The topology is a direct cable from the Mac USB Ethernet adapter to the MCU.
+The service name is `USB 10/100/1000 LAN`. It maps to `en7`.
+The adapter MAC is `00:e0:4c:68:0f:c0`. Its exact model remains unknown.
+The latest local check reported an active `100baseTX` link with full duplex.
+
+| Endpoint or setting | Latest session observation or selection |
+|---|---|
+| Mac USB IPv4 | Assigned `192.168.7.1/24` |
+| USB subnet route | `192.168.7.0/24` through `en7` |
+| USB gateway | None |
+| USB service DNS | `127.0.0.1` |
+| Wi-Fi IPv4 | Unchanged DHCP on `en0`, `10.0.0.2/24` |
+| Wi-Fi gateway and DNS | Gateway `10.0.0.1`, DNS `127.0.0.1` |
+| Default route | Through `en0` |
+| MCU IPv4 | Selected firmware address `192.168.7.2/24`, not an observed address |
+
+The latest USB service DNS result is `127.0.0.1`, despite an earlier clear and verification.
+That earlier result does not prove the current DNS state.
+The documentation pass changed no host settings and ran no network or hardware probes.
+Host link and route observations do not prove MCU IP operation.
+Physical IP and FTP remain unverified.
+
+The user selects a separate bare-metal lwIP FTP server on the board.
+The Mac acts as the FTP client.
+Upload the local file `hello` as binary bytes into bounded MCU RAM.
+Then download the stored bytes and compare them with the original file.
+Require identical byte count and content. A hash can support the comparison.
+This selection supersedes the earlier fixed-download-only scope.
+Do not write flash or a filesystem. Do not use the upload for firmware updates.
+The separate `lm3s6965_ethernet_ftp` source is now complete and tested offline.
+The build option defaults OFF. lwIP 2.2.1 is pinned to
+`77dcd25a72509eb83f72b033d219b1d40cd8eb95`.
+The approved contract is anonymous passive binary upload/download of `hello` or `/hello`, at most 4096 bytes.
+Empty uploads are allowed. Staging commits only after successful server FIN enqueue and safe PCB release.
+Failed uploads retain the previous file. Reset clears it. No filesystem or flash storage is used.
+FTP needs a control connection and a separate data connection.
+Login or link readiness alone cannot prove the selected round trip.
+
+See [FTP source, build, resource evidence, and future client test](ftp.md).
+The [reusable library guide](ftp-library.md) covers core/TCP/RAM sources under `src/`
+and public `include/lm3s6965/` APIs. Buffers, `hello`, and the address belong to the example.
+Extraction is complete offline. It adds no physical acceptance or shared-TCP-stack support.
+That page includes locally verified curl FTP support and a safe temporary-output byte comparison.
+The procedure starts only after separately authorized flashing and network testing.
+No standalone `ftp` CLI options are verified.
+This documentation update ran no builds, network probes, hardware operations, or host configuration changes.
+
+## Current offline tooling
+
+See the [tooling tree and suite list](../scripts/ethernet/README.md).
+`./scripts/ethernet/test.sh` and `./scripts/ethernet/test.sh all` are offline-only.
+Select `ftp file`, `platform`, `consumer`, `driver`, `raw`, or `link` as needed.
+Use `--help` or `--list` alone for usage or suite names.
+Latest independent cleanup verification passed ten native ASan/UBSan executables, three CLI tests, and 41 link Python tests.
+The external consumer compiled and linked only. It was not executed.
+Cleanup added no firmware build, physical link, packet, IP, or FTP evidence.
+
+The raw launcher defaults to **LIVE** traffic, including with no arguments.
+Its `--build-only` mode compiles without device access. Its `--self-test` mode is offline.
+Link live capture resets the target. These live paths are excluded from the consolidated runner.
+Obtain fresh authorization before either live path. Earlier approvals do not carry forward.
+
 ## Distinct diagnostic targets
 
 | Target | Purpose | Board MAC |
@@ -17,7 +85,7 @@ Bidirectional frame exchange, IP, FTP, and cable-cycle recovery remain untested.
 
 Both targets preserve the existing bare-metal and FreeRTOS examples.
 They are not interchangeable. The link evaluator requires the link identity.
-Do not use `scripts/ethernet-link-test.sh` with the RAW image.
+Do not use `scripts/ethernet/link/ethernet-link-test.sh` with the RAW image.
 It resets the board and then rejects the RAW identity.
 
 ## RAW frame experiment
@@ -27,8 +95,8 @@ The separate source is `examples/ethernet-raw`. Build without hardware access:
 ```sh
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-lm3s6965.cmake
 cmake --build build --target lm3s6965_ethernet_raw
-scripts/ethernet-raw-test.sh --build-only
-scripts/ethernet-raw-test.sh --self-test
+./scripts/ethernet/raw/ethernet-raw-test.sh --build-only
+./scripts/ethernet/raw/ethernet-raw-test.sh --self-test
 ```
 
 The board ELF is `build/examples/ethernet-raw/lm3s6965_ethernet_raw`.
@@ -99,7 +167,7 @@ They do not enable promiscuous mode or provide a permissions installer.
 After approval, build as your regular user, then explicitly run the helper:
 
 ```sh
-scripts/ethernet-raw-test.sh --build-only
+./scripts/ethernet/raw/ethernet-raw-test.sh --build-only
 sudo ./build/host/ethernet_raw_test en7
 ```
 
@@ -115,7 +183,7 @@ It is not removal of packet access. The corrected elevated path is unverified.
 If narrow BPF access is already available, the regular-user command is:
 
 ```sh
-scripts/ethernet-raw-test.sh en7
+./scripts/ethernet/raw/ethernet-raw-test.sh en7
 ```
 
 That script builds and then sends. Its default interface is also `en7`.
@@ -175,7 +243,7 @@ Offline inspection verified a separate compile-time API mismatch:
 That API reports account-default groups, not ordinary process supplementary
 groups. It cannot verify the process credential after `setgroups(0, NULL)`.
 
-The correction is isolated in `tools/ethernet_raw_privilege.c`.
+The correction is isolated in `scripts/ethernet/raw/host/ethernet_raw_privilege.c`.
 It undefines `_DARWIN_C_SOURCE` and `_DARWIN_UNLIMITED_GETGROUPS` before
 any headers. Other translation units retain native Darwin BPF declarations.
 The helper retains nonzero sudo identity validation, group clearing, real
@@ -227,7 +295,7 @@ Only matching incoming replies establish this host experiment's acceptance.
 
 ### Actual host output and acceptance
 
-The following template comes from `tools/ethernet_raw_test.c`, not a live run.
+The following template comes from `scripts/ethernet/raw/host/ethernet_raw_test.c`, not a live run.
 `<interface>` and `<16 uppercase hex digits>` denote runtime values.
 After setup and privilege drop, the helper emits:
 
@@ -320,7 +388,7 @@ scripts/flash.sh build/examples/ethernet-link/lm3s6965_ethernet_link
 With the diagnostic already flashed, run the link check:
 
 ```sh
-scripts/ethernet-link-test.sh --seconds 10 --baud 1000000
+./scripts/ethernet/link/ethernet-link-test.sh --seconds 10 --baud 1000000
 ```
 
 The live command resets the target through `scripts/icdi-console.sh`.
@@ -406,7 +474,7 @@ Argument errors use the parser usage/error output and exit status 2.
 ### Offline saved-text evaluation
 
 ```sh
-scripts/ethernet-link-test.sh --capture-file saved-capture.txt
+./scripts/ethernet/link/ethernet-link-test.sh --capture-file saved-capture.txt
 ```
 
 This mode reads saved decoded text only. It does not reset or access devices.
@@ -524,7 +592,8 @@ There is an immediate sample, then one poll and report per blocking
 output without an interrupt clock. It can miss transitions between polls.
 Poll and console time extend the interval. SysTick COUNTFLAG coalesces
 missed ticks. This delay is not a monotonic clock or a network timer.
-A separate timer design for future lwIP remains pending.
+The separate FTP target now has an interrupt-accumulated clock.
+Its physical frequency and worst-case foreground service gaps remain unmeasured.
 
 The diagnostic submits no frames and makes no host network changes.
 It has no lwIP or FTP code. PHY autonegotiation still uses link signaling.
@@ -588,7 +657,7 @@ They do not prove physical FIFO behavior.
   printed/PDF pages 11–12. PDF page 18 shows Rev-D schematic sheet 1 of 3.
   That sheet has no separate printed book-page number.
   A schematic documents a circuit. It does not verify board operation.
-- **Host-model evidence:** `tests/ethernet_test.c` checks software against a
+- **Host-model evidence:** `scripts/ethernet/platform/tests/ethernet_test.c` checks software against a
   simulated register and FIFO model. Its assumptions are not independent
   hardware evidence. Passing host tests cannot prove the RX count convention.
 - **Physical evidence:** The initial run observed initialization and ten

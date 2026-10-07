@@ -25,7 +25,7 @@
 
 #include "ethernet_raw_capture.h"
 #include "ethernet_raw_privilege.h"
-#include "../examples/ethernet-raw/raw_protocol.h"
+#include "../../../../examples/ethernet-raw/raw_protocol.h"
 
 #define REQUEST_COUNT 3u
 #define TIMEOUT_MS 3000
@@ -191,7 +191,7 @@ int main(int argc, char **argv)
     {
         puts("Usage: ethernet_raw_test [interface] (default en7)\n"
              "Sends 3 sequential exact 60-byte requests; 3s per request.\n"
-             "Build/self-test offline: scripts/ethernet-raw-test.sh --help\n"
+             "Build/self-test offline: scripts/ethernet/raw/ethernet-raw-test.sh --help\n"
              "No sudo, permission installer or network-setting changes.");
         return 0;
     }

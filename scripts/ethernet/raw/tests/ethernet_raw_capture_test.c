@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../tools/ethernet_raw_capture.h"
-#include "../examples/ethernet-raw/raw_protocol.h"
+#include "../host/ethernet_raw_capture.h"
+#include "../../../../examples/ethernet-raw/raw_protocol.h"
 
 static const uint8_t host[6] = {0, 0x11, 0x22, 0x33, 0x44, 0x55};
 static const raw_message_t expected = {

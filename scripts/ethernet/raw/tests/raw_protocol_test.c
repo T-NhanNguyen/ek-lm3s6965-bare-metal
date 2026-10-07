@@ -1,9 +1,9 @@
 /* Pure protocol tests, not a MAC/PHY model or evidence of hardware operation.
  * cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
- *   tests/raw_protocol_test.c examples/ethernet-raw/raw_protocol.c \
+ *   scripts/ethernet/raw/tests/raw_protocol_test.c examples/ethernet-raw/raw_protocol.c \
  *   -o /tmp/raw_protocol_test && /tmp/raw_protocol_test
  */
-#include "../examples/ethernet-raw/raw_protocol.h"
+#include "../../../../examples/ethernet-raw/raw_protocol.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

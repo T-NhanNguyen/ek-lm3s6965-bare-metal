@@ -113,7 +113,7 @@ static int mock_getgroups(int size, gid_t *groups)
 #define setgid mock_setgid
 #define setuid mock_setuid
 #define getgroups mock_getgroups
-#include "../tools/ethernet_raw_privilege.c"
+#include "../host/ethernet_raw_privilege.c"
 #undef getenv
 #undef geteuid
 #undef getuid

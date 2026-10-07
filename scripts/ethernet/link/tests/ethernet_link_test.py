@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "ethernet_link_test.py"
+    Path(__file__).resolve().parents[1] / "ethernet_link_test.py"
 )
 SPEC = importlib.util.spec_from_file_location("ethernet_link", MODULE_PATH)
 LINK = importlib.util.module_from_spec(SPEC)
@@ -47,7 +47,7 @@ def mock_helper_capture(text, read_error=False, *, probe_statuses=None,
                         teardown_status=-15, launch_error=None,
                         flush_error=False, process=None):
     """Execute the actual helper Python, with every hardware/time seam mocked."""
-    source = MODULE_PATH.with_name("icdi-console.sh").read_text()
+    source = (MODULE_PATH.parents[2] / "icdi-console.sh").read_text()
     source = source.split("<<'PYTHON'\n", 1)[1].rsplit("\nPYTHON", 1)[0]
     ftdi = types.ModuleType("pyftdi.ftdi")
     ftdi.Ftdi = Mock()

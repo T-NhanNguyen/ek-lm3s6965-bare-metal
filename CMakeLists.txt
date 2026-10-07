@@ -5,6 +5,8 @@ project(lm3s6965_bsp
         DESCRIPTION "Board support package for the TI/Luminary LM3S6965 (ARM Cortex-M3) evaluation board"
         LANGUAGES C)
 
+option(LM3S6965_BUILD_ETHERNET_FTP "Build the opt-in bare-metal lwIP FTP example" OFF)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 

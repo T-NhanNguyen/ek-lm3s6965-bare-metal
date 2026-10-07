@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <net/bpf.h>
 
-#include "../examples/ethernet-raw/raw_protocol.h"
+#include "../../../../examples/ethernet-raw/raw_protocol.h"
 
 /* False means malformed records. matched is true only for a complete reply
  * matching the outstanding request; even records after a match are checked. */

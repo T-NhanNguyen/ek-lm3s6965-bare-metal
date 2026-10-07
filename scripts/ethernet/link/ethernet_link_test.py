@@ -186,7 +186,7 @@ def positive_baud(value):
 
 def main(argv=None, capture_runner=None):
     parser = argparse.ArgumentParser(
-        prog="scripts/ethernet-link-test.sh",
+        prog="scripts/ethernet/link/ethernet-link-test.sh",
         description="Evaluate Ethernet PHY link diagnostic samples.",
         epilog=(
             "Live mode resets the target through icdi-console.sh and requires "
@@ -218,7 +218,7 @@ def main(argv=None, capture_runner=None):
             print("Capture exit status is unknown and is not evaluated.")
             text = args.capture_file.read_text(encoding="utf-8")
         else:
-            helper = Path(__file__).with_name("icdi-console.sh")
+            helper = Path(__file__).resolve().parents[2] / "icdi-console.sh"
             runner = capture_runner or subprocess.run
             result = runner(
                 [str(helper), "--seconds", args.seconds or "10",

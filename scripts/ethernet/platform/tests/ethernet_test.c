@@ -1,6 +1,6 @@
 /* Host-only register/FIFO model; run with the command below, no target access.
  * cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
- *   -Iinclude/lm3s6965 tests/ethernet_test.c -o /tmp/ethernet_test
+ *   -Iinclude/lm3s6965 scripts/ethernet/platform/tests/ethernet_test.c -o /tmp/ethernet_test
  */
 #include <assert.h>
 #include <stdbool.h>
@@ -158,7 +158,7 @@ static volatile uint32_t *host_register(uint32_t address,
 
 #undef REGISTER32
 #define REGISTER32(address) (*host_register(address, __func__))
-#include "../src/ethernet.c"
+#include "../../../../src/ethernet.c"
 
 void system_control_enable_peripheral_clock(uint32_t offset, uint32_t mask)
 {

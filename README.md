@@ -52,7 +52,7 @@ python3 -m venv .venv
 `scripts/icdi-console.sh` finds this environment automatically. Set `PYFTDI_PYTHON` to point at a
 different interpreter.
 
-`scripts/ethernet-link-test.sh` also needs `python3` on `PATH`.
+`scripts/ethernet/link/ethernet-link-test.sh` also needs `python3` on `PATH`.
 Its evaluator uses only the Python standard library.
 Live capture also needs OpenOCD and the capture interpreter with `pyftdi`.
 Offline `--capture-file` evaluation needs neither OpenOCD nor `pyftdi`.
@@ -102,6 +102,14 @@ location, pass `-DLM3S6965_TOOLCHAIN_BIN_HINTS=/path/to/toolchain/bin`.
 ---
 
 ## Build
+
+The separate `lm3s6965_ethernet_ftp` target is opt-in and defaults OFF.
+See [FTP build and evidence](docs/ftp.md) for pinned lwIP initialization and
+`-DLM3S6965_BUILD_ETHERNET_FTP=ON` instructions. Physical IP/FTP acceptance remains pending.
+The [reusable FTP library guide](docs/ftp-library.md) covers `src/ftp_core.c`,
+`src/ftp_tcp.c`, `src/ram_file.c`, and public `include/lm3s6965/` APIs.
+Reuse the `lm3s6965_ftp_core` and `lm3s6965_ram_file` archives, or create a TCP adapter
+with `lm3s6965_add_ftp_tcp_library(target lwip_target)` and caller-exported lwIP configuration.
 
 The FreeRTOS kernel is a git submodule. Fetch it before the first build:
 
@@ -273,7 +281,8 @@ examples/baremetal/              bare-metal example (main.c, CMakeLists.txt)
 examples/freertos/               FreeRTOS example (main.c, CMakeLists.txt)
 examples/ethernet-link/          PHY-only link diagnostic
 examples/ethernet-raw/           Bounded RAW request/reply diagnostic
-tools/                          Native macOS BPF helper and capture parser
+examples/ethernet-ftp/          Opt-in FTP example and caller-owned lwIP port
+scripts/ethernet/               Ethernet tooling, fixtures, and offline suite runner
 openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
 openocd/interface/               ICDI interface config for this board's 0403:bcd9 probe
 scripts/check-connection.sh      Cable and probe detection
@@ -281,25 +290,43 @@ scripts/probe.sh                 Read-only connectivity check
 scripts/flash.sh                 Program, verify, reset
 scripts/console.sh               Read the UART0 console through a USB serial adapter
 scripts/icdi-console.sh          Capture the SWO startup marker through the ICDI
-scripts/ethernet-link-test.sh    Capture and evaluate Ethernet PHY link samples
-scripts/ethernet_link_test.py    Standard-library live or offline link evaluator
-scripts/ethernet-raw-test.sh     Native host build, offline tests, or RAW exchange
-tests/raw_protocol_test.c       Offline RAW protocol tests
-tests/ethernet_raw_capture_test.c  Offline native BPF parser/filter tests
+scripts/ethernet/test.sh         Default-safe consolidated offline suites
+scripts/ethernet/link/           Link runners and shared ICDI capture fixtures
+scripts/ethernet/raw/host/       Real native Mac helper executable sources
+scripts/ethernet/raw/tests/      Offline RAW fixtures
 ```
 
 ## Ethernet diagnostics
 
+See [Ethernet tooling and suites](scripts/ethernet/README.md) for the current layout.
+Run these commands from the repository root:
+
+```sh
+./scripts/ethernet/test.sh
+./scripts/ethernet/test.sh all
+./scripts/ethernet/test.sh ftp file
+./scripts/ethernet/test.sh consumer
+./scripts/ethernet/test.sh --help
+./scripts/ethernet/test.sh --list
+```
+
+Default and `all` run offline suites only. Consumer coverage is Arm compile/link only.
+Latest independent cleanup checks passed ten native ASan/UBSan executables, three CLI tests, and 41 link Python tests.
+No new firmware build or hardware evidence was added by cleanup.
+The separate raw launcher defaults to **LIVE** traffic. Link live capture resets the board.
+Neither live path is part of the consolidated runner. Both require fresh authorization.
+
 The board currently runs `lm3s6965_ethernet_raw`, not the link diagnostic.
-RAW initialization and negotiated readiness were observed. No live host
-frame experiment or elevated helper execution has run.
+RAW initialization and negotiated readiness were observed.
+Earlier elevated helper attempts failed before the frame experiment.
+The corrected elevated retry and raw-frame exchange remain unverified.
 IP, FTP, and full-MTU operation remain untested.
 
 Build the native macOS helper as a regular user without device access:
 
 ```bash
-scripts/ethernet-raw-test.sh --build-only
-scripts/ethernet-raw-test.sh --self-test
+./scripts/ethernet/raw/ethernet-raw-test.sh --build-only
+./scripts/ethernet/raw/ethernet-raw-test.sh --self-test
 ```
 
 BPF needs narrow read/write access. The observed root-owned `0600` devices
@@ -317,11 +344,12 @@ frame contract, exact output, bounds, and optional two-terminal capture.
 
 ### PHY-only link check
 
+Obtain fresh authorization before this live capture.
 Only with `lm3s6965_ethernet_link` flashed, run from the repository root.
 Do not use this wrapper with RAW. It resets and rejects the RAW identity:
 
 ```bash
-scripts/ethernet-link-test.sh --seconds 10 --baud 1000000
+./scripts/ethernet/link/ethernet-link-test.sh --seconds 10 --baud 1000000
 ```
 
 This command resets the target. It does not flash, change host network
@@ -352,7 +380,8 @@ output, prerequisites, and offline saved-text evaluation.
 - **The project implements only UART0 among the serial ports.** GPIO, the user LED, the switches,
   SysTick, and the ITM trace block work. The project does not implement UART1, UART2, SSI, I2C,
   PWM, QEI, ADC, or the general-purpose timers. Ethernet has a BSP driver
-  and separate link/RAW diagnostics, but no IP or FTP implementation.
+  and separate link/RAW diagnostics. An opt-in bare-metal lwIP FTP example is tested offline.
+  Physical MCU IP and FTP remain unverified.
 - **QEMU runs the console slowly.** The firmware paces each ITM write on the stimulus port ready
   bit. QEMU does not model the ITM, so each byte spins the bounded wait loop. A full banner takes
   about 45 seconds. Use a capture window of 45 seconds or more.
