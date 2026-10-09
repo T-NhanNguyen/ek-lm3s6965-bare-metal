@@ -137,9 +137,10 @@ platform() {
         "$ROOT/scripts/ethernet/platform/tests/ftp_sbrk_test.c" \
         "$ROOT/examples/ethernet-ftp/ftp_sbrk.c" -o "$BUILD/heap"
     "$BUILD/heap"
-    # CLI fixture uses only help/list/invalid arguments; never recurses into all.
+    # CLI uses only help/list/invalid arguments; stack scanner uses synthetic
+    # dumps. Neither Python fixture accesses hardware or recurses into all.
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
-        -s "$ROOT/scripts/ethernet/platform/tests" -p 'runner_cli_test.py' -v
+        -s "$ROOT/scripts/ethernet/platform/tests" -p '*_test.py' -v
 }
 consumer() {
     require_lwip

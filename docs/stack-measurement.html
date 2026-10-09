@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Stack measurement — returns leave traces</title>
+<style>
+:root { color-scheme: dark; --bg:#0b1422; --panel:#121f31; --ink:#eef4ff; --muted:#b4c4db; --line:#31465f; --live:#55cfef; --scar:#ffc16b; --fill:#274960; --tick:#f39ac8; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,sans-serif; }
+main { max-width:1160px; margin:auto; padding:32px 24px; }
+h1 { font-size:clamp(1.9rem,4vw,3rem); line-height:1.12; max-width:850px; margin:10px 0 16px; letter-spacing:-.035em; }
+h2 { font-size:1.3rem; line-height:1.3; margin:10px 0; }
+p { margin:10px 0; }
+.eyebrow { color:var(--live); text-transform:uppercase; letter-spacing:.12em; font-size:.78rem; font-weight:750; }
+.subtitle { color:var(--muted); max-width:820px; }
+.notice { border-left:3px solid var(--scar); padding:10px 16px; background:#201e24; margin:20px 0; }
+.workspace { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(0,1fr); gap:24px; align-items:start; }
+.panel { min-width:0; border:1px solid var(--line); border-radius:18px; background:var(--panel); padding:22px; }
+.visual { padding:18px 16px; }
+svg { width:100%; height:auto; display:block; }
+svg text { fill:var(--ink); font:17px system-ui,sans-serif; }
+svg .small { font-size:14px; fill:var(--muted); }
+svg .mono { font:16px ui-monospace,monospace; }
+#active-region,#scar-region,#exception-region,#sp-line,#sp-leader { transition:height .65s ease,y .65s ease,transform .65s ease,opacity .65s ease; }
+#paint-region { transition:opacity .7s ease; }
+.legend { display:flex; flex-wrap:wrap; gap:8px 16px; padding:0 8px; font-size:.85rem; color:var(--muted); }
+.key { display:inline-block; width:14px; height:14px; margin-right:6px; border-radius:3px; vertical-align:-2px; border:1px solid #a6b7cc; }
+.key.live { background:var(--live); } .key.scar { background:repeating-linear-gradient(135deg,var(--scar) 0 3px,#6e4b2e 3px 6px); } .key.fill { background:var(--fill); } .key.tick { background:var(--tick); }
+.controls { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+button { color:var(--ink); background:#20334c; border:1px solid #527095; border-radius:9px; padding:10px 14px; font:inherit; cursor:pointer; min-height:44px; }
+button.primary { background:#116079; border-color:var(--live); }
+button:hover:not(:disabled) { background:#30516e; } button:disabled { opacity:.45; cursor:default; }
+button:focus-visible,summary:focus-visible { outline:3px solid var(--scar); outline-offset:4px; }
+.progress { display:flex; gap:5px; margin:18px 0 12px; }
+.progress span { height:5px; background:var(--line); flex:1; border-radius:3px; }
+.progress span.done { background:var(--live); }
+#stage-copy { min-height:195px; }
+#stage-description { color:var(--muted); }
+.lesson { border-left:3px solid var(--live); padding:12px 16px; background:#172e40; }
+.metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:20px; }
+.metric { background:#0d1929; padding:12px 10px; border-radius:10px; }
+.metric dt { font-size:.8rem; color:var(--muted); line-height:1.4; }
+.metric dd { margin:8px 0 0; font-size:1.2rem; font-weight:750; white-space:nowrap; }
+.metric-note { color:var(--muted); font-size:.8rem; }
+.payload { margin-top:18px; border:1px dashed #647995; padding:14px; border-radius:10px; }
+.payload code { color:var(--scar); font-size:1.1rem; }
+.limits { margin-top:24px; display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.limits p { color:var(--muted); }
+details { margin-top:24px; border:1px solid var(--line); border-radius:12px; padding:16px 20px; }
+summary { cursor:pointer; font-weight:700; }
+.warning { color:var(--scar); }
+footer { color:var(--muted); font-size:.85rem; margin-top:20px; }
+.scan-running #scan-line { animation:scan 1.4s ease-out both; }
+@keyframes scan { from { transform:translateY(560px); opacity:1; } to { transform:translateY(171.875px); opacity:1; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+@media (max-width:760px) { main { padding:22px 14px; } .workspace,.limits { grid-template-columns:minmax(0,1fr); gap:16px; } .panel { padding:16px; } #stage-copy { min-height:0; } .visual { order:2; } .story { order:1; } .metrics { grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:6px; } .metric dd { font-size:1.05rem; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="eyebrow">Cortex-M3 · a guided visual model</div>
+<h1>Returning frees the stack.<br>It does not erase the evidence.</h1>
+<p class="subtitle">Fill the stack with a known pattern before C starts. Calls overwrite it. After they return, those overwritten bytes remain — so a later scan can find the deepest visible trace.</p>
+</header>
+<div class="notice"><strong>Illustration, not a device result.</strong> This device has not yet been stack-measured. Every depth below is invented to explain the method; the reserved capacity and address bounds come from the FTP linker.</div>
+<section class="workspace" aria-label="Interactive stack story">
+<div class="panel visual">
+<svg id="stack-diagram" viewBox="0 0 600 650" role="img" aria-labelledby="diagram-title diagram-description">
+<title id="diagram-title">An 8 KiB stack growing downward from high addresses</title>
+<desc id="diagram-description">The initial stack is unpainted. Advance the story to see live frames and persistent written traces.</desc>
+<defs>
+<pattern id="sentinel" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="#274960"/><circle cx="8" cy="8" r="1.4" fill="#6e96b1"/></pattern>
+<pattern id="scars" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="9" fill="#6e4b2e"/><rect width="4" height="9" fill="#ffc16b"/></pattern>
+</defs>
+<text x="108" y="26" class="mono">0x20010000</text><text x="305" y="26" class="small">HIGH · exclusive top</text>
+<text x="108" y="54" class="small">Initial MSP / empty stack</text>
+<rect x="110" y="80" width="180" height="480" rx="2" fill="#283344"/>
+<rect id="paint-region" x="110" y="80" width="180" height="480" fill="url(#sentinel)" opacity="0"/>
+<rect id="scar-region" x="110" y="80" width="180" height="0" fill="url(#scars)"/>
+<rect id="active-region" x="110" y="80" width="180" height="0" fill="#55cfef"/>
+<rect id="exception-region" x="110" y="80" width="180" height="0" fill="#f39ac8"/>
+<rect x="110" y="80" width="180" height="480" fill="none" stroke="#95aac4" stroke-width="2"/>
+<path d="M 72 106 V 225 m -8 -12 l 8 12 8 -12" fill="none" stroke="#55cfef" stroke-width="3"/>
+<text x="32" y="250" class="small">Grows</text><text x="32" y="270" class="small">down</text>
+<g id="sp-line" transform="translate(0 80)"><path d="M 102 0 H 300" stroke="#fff" stroke-width="3"/></g>
+<path id="sp-leader" d="M 300 80 L 320 230 H 350" stroke="#fff" fill="none"/>
+<text x="355" y="230">Current MSP</text><text id="sp-address" x="355" y="256" class="mono">0x20010000</text>
+<text id="region-label" x="320" y="115" class="small">Not painted yet</text>
+<text id="trace-label" x="320" y="150" class="small"></text>
+<text x="140" y="385" class="small">Reserved stack</text><text x="140" y="407" class="small">8,192 bytes</text>
+<g id="scan-indicator" opacity="0"><path id="scan-line" d="M 104 0 H 296" transform="translate(0 171.875)" stroke="#ffc16b" stroke-width="4"/><text x="320" y="310" fill="#ffc16b">Host scan finds trace</text><text x="320" y="337" class="mono">0x2000F9E0</text></g>
+<text x="108" y="593" class="mono">0x2000E000</text><text x="305" y="593" class="small">LOW · stack limit</text>
+<text x="108" y="626" class="small">Linear address scale · 480 drawing units = 8 KiB</text>
+</svg>
+<div class="legend" aria-label="Diagram legend">
+<span><i class="key live"></i>Live / currently active</span><span><i class="key scar"></i>Returned, still overwritten</span><span><i class="key fill"></i>Original fill pattern</span><span><i class="key tick"></i>SysTick hardware frame</span>
+</div>
+</div>
+<div class="panel story" id="story" data-stage="0" data-stage-name="entry" data-current-depth="0" data-written-depth="unknown">
+<div class="eyebrow" id="stage-counter">Stage 1 of 9 · paused</div>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<div class="controls" aria-label="Story controls">
+<button id="play" class="primary" type="button" aria-pressed="false">Play</button>
+<button id="previous" type="button" disabled>Previous</button>
+<button id="next" type="button">Next</button>
+<button id="restart" type="button">Restart</button>
+</div>
+<div id="stage-copy" aria-live="polite" aria-atomic="true">
+<h2 id="stage-title">At reset entry: no calls yet</h2>
+<p id="stage-description">The stack pointer starts at the high address. This model stops before any push or call, so no frame is live yet. The memory has not been given a known fill pattern.</p>
+</div>
+<p class="lesson" id="lesson">Start the painting before any code needs the stack.</p>
+<dl class="metrics" aria-label="Illustrative stack numbers">
+<div class="metric"><dt>Reserved capacity</dt><dd id="capacity">8,192 B</dd></div>
+<div class="metric"><dt>Current depth<br>(illustrative)</dt><dd id="current-depth">0 B</dd></div>
+<div class="metric"><dt>Observed written depth<br>(illustrative)</dt><dd id="written-depth">Unknown</dd></div>
+</dl>
+<p class="metric-note">Written depth = deepest changed pattern in this model, learned by the host at the final scan. Before painting, there is no reference pattern.</p>
+<div class="payload"><strong>Separate from the stack: file payload</strong><br><code>monster hulk</code> · 12 bytes, no newline<br><span class="metric-note">FTP file/network storage is not drawn as a stack frame. Payload length does not predict stack depth: protocol calls, local variables and interrupts use their own stack space.</span></div>
+</div>
+</section>
+<section class="limits" aria-label="What the measurement means">
+<div class="panel"><h2>A scan sees writes, not every use</h2><p>Space can be reserved by moving MSP without writing every byte. Untouched frame slots, alignment gaps, or a value equal to the fill pattern can hide use. The deepest changed byte is <strong>not the exact historical minimum MSP</strong>. The solid live blocks here simplify this: the example assumes writes reach each illustrated depth.</p><p>The scan includes all activity since painting: startup, idle, FTP and interrupts. It cannot attribute the trace to FTP alone.</p></div>
+<div class="panel"><h2>A baseline is not a safety proof</h2><p>The example leaves 6,624 bytes of unchanged pattern below its trace. That is <strong>not a proven safe margin</strong>. A tiny successful transfer does not cover other call paths, errors, interrupt nesting or future workloads.</p><p>A dump contains all 8,192 reserved bytes for inspection. <strong>Dump size is not used stack size.</strong> Validate a real measurement path with known-write controls before trusting its results.</p></div>
+</section>
+<details id="hazard">
+<summary>Why not paint the whole stack from ordinary C?</summary>
+<p class="warning"><strong>Unsafe counterexample — explanation only, not an action to run.</strong></p>
+<p>The existing FTP reset-handler disassembly begins with <code>push {r3, lr}</code>: an <strong>8-byte live reset frame</strong> at <code>[0x2000FFF8, 0x20010000)</code> before its C body runs. Painting the entire reserved stack from there would erase those saved values. Calling a C painter can add still more live frames.</p>
+<p>The proposed safe approach is an FTP-scoped <strong>stackless pre-C assembly painter, before any pushes or calls</strong>, followed by normal startup. Its final disassembly, bounds, interrupt/fault safety and startup integration still need validation. This page implements none of that firmware procedure.</p>
+</details>
+<noscript><p class="notice">JavaScript is disabled. The controls need JavaScript; the key lesson still holds: calls overwrite the fill pattern, returns make memory reusable without restoring it, and a no-reset host scan can find the remaining writes.</p></noscript>
+<footer>Educational model only. No firmware, debugger connection, reset, network request or hardware operation is performed. Restart restarts this illustration — not the device.</footer>
+</main>
+<script>
+'use strict';
+(() => {
+  const stages = [
+    {name:'entry', current:0, written:null, title:'At reset entry: no calls yet', description:'The stack pointer starts at the high address. This model stops before any push or call, so no frame is live yet. The memory has not been given a known fill pattern.', lesson:'Start the painting before any code needs the stack.'},
+    {name:'paint', current:0, written:0, title:'Paint first, without using the stack', description:'A proposed stackless pre-C painter fills all 8 KiB with a known sentinel (for example, 0xA5A5A5A5). It uses no pushes or calls. Only after it finishes does normal startup begin.', lesson:'The fill pattern is a reference, not a live stack frame.'},
+    {name:'startup', current:512, written:512, title:'Startup makes the first writes', description:'Reset and startup code now use the stack. In this invented example, active frames and their writes reach 512 bytes down. This includes the reset frame; startup will be part of the eventual trace.', lesson:'Blue means live now. The dots below still hold the original pattern.'},
+    {name:'calls', current:1536, written:1536, title:'Nested function calls grow downward', description:'Foreground network and FTP calls need more frames. This illustrative call chain reaches 1,536 bytes. Lower addresses mean deeper stack use; MSP moves down as frames are added.', lesson:'Stack depth comes from the call chain, not the file length.'},
+    {name:'ftp', current:1536, written:1536, title:'The tiny FTP file is only 12 bytes', description:'Imagine uploading and downloading “monster hulk”, without a newline. Its file bytes live in separate file/network storage. The 1,536-byte stack depth here is invented, not measured or calculated from those 12 bytes.', lesson:'12 bytes of payload does not mean 12 bytes of stack.'},
+    {name:'systick', current:1568, written:1568, title:'SysTick interrupts the deepest call', description:'Cortex-M3 exception entry saves eight words on the same MSP stack: 32 more bytes here, taking the model to 1,568. The pink strip is thin because it is drawn to scale. Real alignment padding, ISR software saves or nesting can add more; they are omitted from this example.', lesson:'Interrupt frames count too, even during a tiny transfer.'},
+    {name:'returns', current:512, written:1568, title:'The calls return. Their traces stay.', description:'SysTick exits and the nested foreground calls return. MSP rises to the illustrative 512-byte baseline. The amber area is reusable memory, no longer live — but its old writes remain. Returning does not repaint it.', lesson:'This is the key: current depth shrinks; written depth does not.'},
+    {name:'halt', current:512, written:1568, title:'Halt WITHOUT RESET', description:'After the transfer, the proposed measurement would halt the CPU without resetting it. Preserve the existing stack bytes and read registers and memory from the host. Do not run a target-side scanner or printf that would add its own stack use. Debugger attach events must not reset or alter RAM.', lesson:'A reset and another paint would destroy this run’s evidence.'},
+    {name:'scan', current:512, written:1568, title:'The host scans the remaining pattern', description:'The host reads all 8,192 reserved bytes and scans upward from the low address for changed pattern. In this simplified contiguous-write example, the deepest trace is at 0x2000F9E0: 1,568 bytes below the top. The halted current depth is only 512 bytes.', lesson:'The trace survives returns. It reports written high-water, not an exact peak or a safety guarantee.'}
+  ];
+  const $ = id => document.getElementById(id);
+  const top = 0x20010000, scale = 480 / 8192;
+  const address = depth => '0x' + (top - depth).toString(16).toUpperCase().padStart(8,'0');
+  const bytes = n => n.toLocaleString('en-US') + ' B';
+  let index = 0, playing = false, timer = null;
+  stages.forEach(() => $('progress').appendChild(document.createElement('span')));
+  function render() {
+    const s = stages[index], y = 80 + s.current * scale;
+    $('story').dataset.stage = String(index);
+    $('story').dataset.stageName = s.name;
+    $('story').dataset.currentDepth = String(s.current);
+    $('story').dataset.writtenDepth = s.written === null ? 'unknown' : String(s.written);
+    $('stage-counter').textContent = `Stage ${index + 1} of ${stages.length} · ${playing ? 'playing' : 'paused'}`;
+    $('stage-title').textContent = s.title;
+    $('stage-description').textContent = s.description;
+    $('lesson').textContent = s.lesson;
+    $('current-depth').textContent = bytes(s.current);
+    $('written-depth').textContent = s.written === null ? 'Unknown' : bytes(s.written);
+    $('paint-region').setAttribute('opacity', index > 0 ? '1' : '0');
+    $('active-region').setAttribute('height', String(s.current * scale));
+    $('scar-region').setAttribute('y', String(y));
+    $('scar-region').setAttribute('height', String(Math.max(0,(s.written || 0) - s.current) * scale));
+    $('exception-region').setAttribute('y', String(80 + 1536 * scale));
+    $('exception-region').setAttribute('height', index === 5 ? String(32 * scale) : '0');
+    $('sp-line').setAttribute('transform', `translate(0 ${y})`);
+    $('sp-leader').setAttribute('d', `M 300 ${y} L 320 230 H 350`);
+    $('sp-address').textContent = address(s.current);
+    $('region-label').textContent = index === 0 ? 'Not painted yet' : s.current ? 'Live frames (blue)' : 'Known pattern everywhere';
+    $('trace-label').textContent = index >= 6 ? 'Returned traces (hatched)' : index === 5 ? '+ 32 B SysTick (pink)' : '';
+    $('scan-indicator').setAttribute('opacity', index === 8 ? '1' : '0');
+    $('stack-diagram').classList.toggle('scan-running', index === 8);
+    $('diagram-description').textContent = `${s.title}. Current illustrative depth ${s.current} bytes. Written illustrative depth ${s.written === null ? 'unknown' : s.written + ' bytes'}. ${s.lesson}`;
+    $('previous').disabled = index === 0;
+    $('next').disabled = index === stages.length - 1;
+    $('play').textContent = playing ? 'Pause' : index === stages.length - 1 ? 'Play again' : 'Play';
+    $('play').setAttribute('aria-pressed', String(playing));
+    [...$('progress').children].forEach((dot,i) => dot.classList.toggle('done',i <= index));
+  }
+  function pause() { playing = false; clearTimeout(timer); timer = null; }
+  function schedule() {
+    timer = setTimeout(() => {
+      if (!playing) return;
+      index++;
+      if (index === stages.length - 1) pause();
+      render();
+      if (playing) schedule();
+    }, 6500);
+  }
+  $('play').addEventListener('click', () => {
+    if (playing) pause();
+    else { if (index === stages.length - 1) index = 0; playing = true; schedule(); }
+    render();
+  });
+  $('next').addEventListener('click', () => { pause(); index = Math.min(index + 1,stages.length - 1); render(); });
+  $('previous').addEventListener('click', () => { pause(); index = Math.max(0,index - 1); render(); });
+  $('restart').addEventListener('click', () => { pause(); index = 0; render(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && playing) { pause(); render(); } });
+  render(); // No timer or animation starts on initial load.
+})();
+</script>
+</body>
+</html>

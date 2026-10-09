@@ -15,6 +15,32 @@ void __libc_init_array(void);
 void Reset_Handler(void);
 void Default_Handler(void);
 
+#if defined(LM3S6965_FTP_STACK_MEASUREMENT)
+/* Only the separately compiled FTP startup enables this reset-vector shim.
+ * GCC naked + basic asm needs no ASM CMake language and emits no C prologue.
+ * r3 preserves PRIMASK; only registers and flash literals are used until the
+ * first store. NMI/HardFault cannot be masked: this is a reset-only path, not
+ * a callable runtime repaint operation. Verify the linked disassembly.
+ */
+__attribute__((naked, used)) void FTP_Stack_Reset_Handler(void)
+{
+    __asm__(
+        "mrs r3, primask\n"
+        "cpsid i\n"
+        "ldr r0, =_stack_limit\n"
+        "ldr r1, =_estack\n"
+        "ldr r2, =0xa5c39e71\n"
+        "1:\n"
+        "cmp r0, r1\n"
+        "bhs 2f\n"
+        "str r2, [r0], #4\n"
+        "b 1b\n"
+        "2:\n"
+        "msr primask, r3\n"
+        "b Reset_Handler\n");
+}
+#endif
+
 #define DEFAULT_HANDLER_ALIAS(handler_name) \
     void handler_name(void) __attribute__((weak, alias("Default_Handler")))
 
@@ -72,7 +98,11 @@ __attribute__((section(".isr_vector"), used))
 const interrupt_handler_t g_interrupt_vector_table[LM3S6965_VECTOR_TABLE_ENTRIES] =
 {
     (interrupt_handler_t)&_estack,   /* 0x00 initial main stack pointer */
+#if defined(LM3S6965_FTP_STACK_MEASUREMENT)
+    FTP_Stack_Reset_Handler,         /* 0x04 reset-only stack painter */
+#else
     Reset_Handler,                   /* 0x04 */
+#endif
     NMI_Handler,                     /* 0x08 */
     HardFault_Handler,               /* 0x0C */
     MemManage_Handler,               /* 0x10 */

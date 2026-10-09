@@ -30,7 +30,8 @@ scripts/ethernet/
       ftp-library-consumer/       External caller and caller-owned config
   file/tests/                     RAM file fixture
   platform/
-    tests/                        Driver, clock/netif, heap, and runner CLI fixtures
+    stack_watermark.py            Offline, exact-bounds FTP stack dump scanner
+    tests/                        Driver, clock/netif, heap, CLI and stack scanner fixtures
     shims/                        Shared native MMIO and lwIP configuration shims
   raw/
     ethernet-raw-test.sh           Separate build/self-test/LIVE launcher
@@ -56,7 +57,7 @@ Consumers own their port configuration. See the [platform contract](../../exampl
 | `tcp` | Production adapter with mock raw TCP API and fault injection |
 | `lwip` | Real pinned stack with checksummed ARP/IPv4/TCP packets in memory |
 | `file` | RAM names, ranges, upload replacement, aliases, and independent instances |
-| `platform` | Clock/wrap, PHY cadence, netif ownership, teardown; separate heap executable; three CLI tests |
+| `platform` | Clock/wrap, PHY cadence, netif ownership, teardown; separate heap executable; three CLI tests and ten synthetic stack scanner tests |
 | `consumer` | Strict Arm compile/link with custom caller config and src/include-only BSP copy; no ELF execution |
 | `driver` | Register/FIFO model, TX/RX, drain/reset, W1C, arguments, and MII |
 | `raw` | Three native offline fixtures: mocked privilege syscalls, native BPF records, protocol bytes |
@@ -70,6 +71,11 @@ Native fixtures use ASan and UBSan. Darwin's unsupported LeakSanitizer is disabl
 Explicit lwIP heap/pool checks remain. Raw requires the installed macOS SDK and a nonroot user.
 Consumer requires the installed Arm toolchain with newlib. Stack suites require populated pinned lwIP.
 No automatic install, fetch, privilege change, or host configuration occurs.
+
+The stack scanner uses only saved binary dumps and explicit little-endian sentinel
+bytes. Its native fixtures cover pristine/full/suffix/unaligned writes, isolated
+mismatches, holes, bad lengths and bounds. See [FTP stack baseline](../../docs/ftp-stack.md)
+for the opt-in build, written-watermark limits and separately authorized no-reset capture.
 
 ## Separate launchers: authorization boundary
 

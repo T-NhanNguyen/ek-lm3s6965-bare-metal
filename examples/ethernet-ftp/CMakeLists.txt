@@ -1,3 +1,6 @@
+option(LM3S6965_FTP_STACK_MEASUREMENT
+    "Paint the FTP reset stack and emit scoped compiler stack-usage reports" OFF)
+
 # Do not include upstream Filelists.cmake: it writes generated files into the
 # submodule. Compile only core/IPv4/Ethernet with this target's NO_SYS options.
 set(LWIP_DIR "${PROJECT_SOURCE_DIR}/third_party/lwip")
@@ -40,4 +43,14 @@ target_link_options(lm3s6965_ethernet_ftp PRIVATE
     "-T${CMAKE_CURRENT_SOURCE_DIR}/lm3s6965_ftp.ld"
     -Wl,--gc-sections -Wl,-Map=lm3s6965_ethernet_ftp.map
     -nostartfiles --specs=nano.specs --specs=nosys.specs)
+if(LM3S6965_FTP_STACK_MEASUREMENT)
+    # The BSP's independent startup compilation and all unrelated targets stay
+    # unchanged. No optimization override: Release keeps the existing -Os.
+    target_compile_definitions(lm3s6965_ftp_platform PRIVATE
+        LM3S6965_FTP_STACK_MEASUREMENT=1)
+    foreach(target IN ITEMS lm3s6965_ftp_platform lm3s6965_ftp_lwip
+            lm3s6965_ftp_tcp lm3s6965_ftp_core lm3s6965_ram_file)
+        target_compile_options(${target} PRIVATE -fstack-usage)
+    endforeach()
+endif()
 lm3s6965_add_binary_outputs(lm3s6965_ethernet_ftp)

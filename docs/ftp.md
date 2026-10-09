@@ -29,6 +29,11 @@ The gitlink pins the commit. Do not update to a moving branch or a different rel
 The ELF is `build/ftp/examples/ethernet-ftp/lm3s6965_ethernet_ftp`.
 Its directory also contains `.bin`, `.hex`, and `.map` files.
 Building does not flash or test the board.
+For the separate opt-in, unchanged-8-KiB stack baseline, see
+[FTP stack written-watermark measurement](ftp-stack.md). It adds only offline
+scanner validation and scoped instrumentation; the existing approval covers the
+planned single flash, 12-byte transfer and no-reset readout described there, not
+additional firmware or workloads.
 
 ## Source layout and reuse
 
