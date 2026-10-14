@@ -18,6 +18,12 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [Injected boot flash adapter](boot-flash.md) — mocked-register controller,
   metadata-only store callbacks, blocked-operation recovery and manifest-first
   inactive erase steps; no physical MMIO binding or hardware acceptance.
+- [Injected boot watchdog policy](boot-watchdog.md) — mocked-register protection,
+  one-way boot/application ownership and single-epoch genuine foreground progress;
+  no physical timing, ISR/MMIO binding or full handoff composition.
+- [Logical boot handoff gate](boot-handoff.md) — structural admission, ordered
+  quiescence trace and one-way watchdog ownership at terminal entry intent;
+  no MSP-changing assembly, application execution or physical binding.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,

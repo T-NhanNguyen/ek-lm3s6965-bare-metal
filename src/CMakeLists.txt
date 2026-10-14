@@ -60,6 +60,19 @@ target_include_directories(lm3s6965_boot_flash PUBLIC
 target_compile_options(lm3s6965_boot_flash PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
+# Injected watchdog ownership/progress only; no MMIO/ISR/runtime integration.
+add_library(lm3s6965_boot_watchdog STATIC EXCLUDE_FROM_ALL boot_watchdog.c)
+target_include_directories(lm3s6965_boot_watchdog PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+target_compile_options(lm3s6965_boot_watchdog PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+# Logical final-handoff intent only; no physical entry/runtime composition.
+add_library(lm3s6965_boot_handoff STATIC EXCLUDE_FROM_ALL boot_handoff.c)
+target_link_libraries(lm3s6965_boot_handoff PUBLIC lm3s6965_boot_watchdog)
+target_compile_options(lm3s6965_boot_handoff PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.
 # Each factory instance compiles the adapter against that caller's stack.
