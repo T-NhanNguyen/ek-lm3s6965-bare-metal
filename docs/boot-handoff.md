@@ -1,4 +1,4 @@
-# Logical boot handoff gate
+# Logical boot handoff gate and isolated target fixture
 
 `include/lm3s6965/boot_handoff.h` and `src/boot_handoff.c` implement a host-model
 admission and ordered trace gate. Success records **terminal entry intent**, not
@@ -134,6 +134,106 @@ Standalone archive: `boot_handoff` (links `boot_watchdog`). Root opt-in archive:
 `lm3s6965_boot_handoff` (links `lm3s6965_boot_watchdog`). Arm code generation
 also references the existing C runtime `memcpy`/`memset` for snapshots and tuple
 initialization; these archives are not freestanding dependency-closure links.
-Neither archive proves
-final boot fit, actual MMIO/interrupt binding, no-return assembly, boot composition,
-FTP/PC behavior, hardware safety or full-MVP acceptance.
+Neither archive proves final boot fit, actual MMIO/interrupt binding, terminal
+assembly integration, boot composition, FTP/PC behavior, hardware safety or
+full-MVP acceptance.
+
+## Isolated Cortex-M3 terminal increment (QEMU only)
+
+`tests/boot/handoff_terminal.S` is deliberately **fixture-only**. No production
+archive, BSP startup or host contract is changed. Its register ABI is r0=selected
+VTOR, r1=validated initial MSP, r2=original authenticated Thumb reset vector.
+It does not validate inputs, transfer ownership or shut down sources. Preconditions:
+
+1. Privileged Thread mode, no active exception, exclusive transaction ownership;
+   inherited CONTROL=0/2 and representable masks as described above.
+2. PRIMASK already 1; SysTick stopped, external delivery disabled, peripheral
+   work and interrupt producers stopped, final pending clears completed.
+3. Selected image/table stable and authenticated, exact MSP `0x20010000`,
+   application startup compatible with continued watchdog protection.
+4. Same configured watchdog object already transferred once; its clock,
+   controller and object lifetime remain intact through application startup.
+
+All input values are in registers before switching MSP/CONTROL. The assembly
+completes a DSB, writes VTOR, executes DSB/ISB, sets LR to a Thumb return trap,
+sets MSP with immediate ISB, sets CONTROL=0 with immediate ISB, clears BASEPRI
+and FAULTMASK, and only then clears PRIMASK and branches through original r2.
+There is no C frame, stack operation, memory access after the MSP switch, call,
+restore or return in this primitive. LR traps a reset routine that returns.
+NMI/fault hazards are not removed by PRIMASK; callers must establish a safe
+system, not infer safety from exclusion alone. This is not a reset of all core
+state (for example PSP, priorities and fault status are not reset).
+
+### Evidence and limits
+
+The local MCU PDF was re-extracted with PDFKit because dedicated document tools
+were unavailable. `datasheets/LM3S6965 Microcontroller Data Sheet.pdf`, July 15,
+2014: masks/CONTROL pp. 68–71; stack-switch ISB p. 71; DSB/ISB and vector ordering
+pp. 75–76; SysTick stop/count/current semantics pp. 106–109; NVIC clear-enable
+pp. 112–113 and clear-pending pp. 116–117; pending SysTick/PendSV clear commands
+pp. 124–125; VTOR fields/alignment p. 127. Clear-enable and clear-pending are
+write-one commands, not read-modify-write. Bank masks are `0xffffffff` and
+`0x00000fff`: the register description includes unused IRQ 43 (bit 11), while
+the established 43-IRQ host model ends at IRQ 42. No host geometry changes.
+ICSR uses only clear command bits 27/25 (`0x0a000000`), never a mixed set/clear
+RMW. Barriers are actual instructions, not conclusions from host mock events.
+
+`test_handoff_target.py` builds at `-Os` and `-Og` and requires compiler/QEMU
+(no silent skips). Each ELF runs **128 cases in one shared QEMU machine**:
+both selected VTOR bases × MSP/PSP × both inherited PRIMASK values × both
+FAULTMASK values × all eight BASEPRI values. Cases share fixture BSS and the
+once-transferred watchdog; they are not 128 fresh boot/reset trials. Each
+optimization level launches a separate QEMU process. Assembly samples entry MSP/CONTROL/IPSR/masks/selected entry
+before C prologue. Real QEMU SysTick/NVIC register effects, selected VTOR readback
+and distinct A/B SVC handlers establish target-emulated evidence. The fixture
+seeds enabled interrupt state under PRIMASK exclusion, injects a **software
+producer**, stops it, then disables NVIC delivery and finally clears pending state. The producer is not a
+modeled Ethernet/DMA device or proof of physical source shutdown coverage.
+QEMU retains SysTick CLKSOURCE=1 after a zero control write; assertions check
+ENABLE/INTEN/COUNTFLAG clear and CURRENT=0 rather than claiming CLKSOURCE reset.
+
+Two distinct old-stack witness words (one per inherited stack) are written
+after the final fixture C return and checked in the application. Preserving
+these two words does not prove the whole old stacks are untouched: other
+addresses could be accessed, and reads would not alter either word. The
+stackless claim for the reviewed terminal/capture prefix rests on the exact
+disassembly checks, not these limited runtime witnesses.
+The original Thumb reset vectors point to distinct entry stubs inside their
+respective slots; shared capture/check code remains fixture infrastructure.
+Entry checks preserve the witnesses and capture the Thumb return-trap LR before
+any C call; disassembly checks enforce the current exact terminal instruction
+sequence and operands, immediate ISBs after MSP/CONTROL, the VTOR literal and
+return-trap target. The allowlist excludes all extra memory/branch/stack/call
+operations and premature mask clearing. Capture is parsed by instruction rows
+through its first call, with the exact register samples/stores and the literal
+address of the `captured` data symbol checked against the ELF symbol table.
+Both slot-entry stubs must contain exactly the slot-ID move and a non-linking
+branch to capture, preserving LR and avoiding stack access. The fixture uses real `boot_watchdog_init/configure/transfer` with
+**synthetic watchdog IO**, transfers once before the case sweep and observes
+same-object application ownership/epoch and unchanged bytes across entry, with
+no transfer IO/feed and no second successful transfer. Intentionally preserved
+fixture BSS is **not evidence that production `.data`/`.bss` startup preserves
+the object**. Physical watchdog countdown, clock continuity and timing remain
+unknown; this test does not depend on QEMU watchdog support.
+
+```sh
+ctest --test-dir /tmp/boot-handoff-target/debug \
+  -R 'boot_(handoff|watchdog)' --output-on-failure
+```
+
+Each wrapper invocation creates and prints a retained unique
+`/tmp/boot-handoff-target/run-*/` directory for its command log, tool versions,
+ELFs, disassembly and QEMU logs; parallel Debug/Release invocations do not share
+those files. QEMU stdout/stderr is saved before raising on nonzero exit or
+timeout, as well as before checking the success marker; the command log records
+command, configured timeout and exit/timeout status. Launch errors retain an
+empty output log and their error status. Explicit Python error gates remain active under `python -O` and
+`PYTHONOPTIMIZE`. Older shared-root artifacts, local PDF extraction and prior
+execution logs are historical evidence, not execution of the current wrapper.
+The review follow-up validates compilation and static disassembly only; current
+optimized-mode rejection probes, concurrent wrapper execution, registered target
+CTest and full host suites are deferred to `test-merit-gate`. Commands are in
+`/tmp/boot-handoff-target/review-followup-report.md`.
+Production binding, integrated
+boot composition/link/fit, startup storage survival, actual peripheral shutdown,
+physical timing and board acceptance remain separate gates.

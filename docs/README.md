@@ -24,6 +24,9 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [Logical boot handoff gate](boot-handoff.md) — structural admission, ordered
   quiescence trace and one-way watchdog ownership at terminal entry intent;
   no MSP-changing assembly, application execution or physical binding.
+- [Verified candidate-launch decision](boot-launch.md) — independent image verification,
+  durable READY to TRIAL and zero-write authoritative retries; no reset composition
+  or physical handoff.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,

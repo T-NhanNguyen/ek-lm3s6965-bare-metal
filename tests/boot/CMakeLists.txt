@@ -107,6 +107,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
     target_compile_options(boot_handoff PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
 endif()
+add_library(boot_launch STATIC ../../src/boot_launch.c)
+target_link_libraries(boot_launch PUBLIC boot_verify boot_store boot_lifecycle)
+target_compile_options(boot_launch PRIVATE
+    -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+    -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+    target_compile_options(boot_launch PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
+        $<$<CONFIG:Release>:-Os>)
+endif()
 # The same standalone project is the cross-build entry point for the archive.
 # Native test executables are deliberately not built for bare-metal ARM.
 if(CMAKE_CROSSCOMPILING)
@@ -169,6 +178,10 @@ target_link_libraries(test_handoff PRIVATE boot_handoff)
 target_compile_options(test_handoff PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
     -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 add_test(NAME boot_handoff COMMAND test_handoff)
+add_test(NAME boot_handoff_target COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_handoff_target.py)
+set_tests_properties(boot_handoff_target PROPERTIES TIMEOUT 120
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 add_executable(test_watchdog test_watchdog.c)
 target_link_libraries(test_watchdog PRIVATE boot_watchdog)
 target_compile_options(test_watchdog PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
@@ -288,6 +301,8 @@ add_test(NAME boot_crypto COMMAND test_crypto)
 add_test(NAME boot_verify COMMAND test_verify)
 add_test(NAME boot_verify_fault COMMAND test_verify_fault)
 add_test(NAME boot_snapshot COMMAND test_snapshot)
+# Launch host tests reuse the established normal and fault-injected targets.
+add_subdirectory(../boot_launch boot_launch)
 # Apple ASan has no LeakSanitizer; crypto tests do allocate/free MPI storage.
 set(BOOT_ASAN_OPTIONS "halt_on_error=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
