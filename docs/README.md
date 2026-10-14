@@ -15,6 +15,9 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [Boot diagnostics and snapshot foundation](boot-diagnostics.md) — ABD1 64-byte ABI,
   ordered foreground publication, external availability and same-owner read-only
   metadata/actually-running snapshot; not full FTP status or hardware acceptance.
+- [Injected boot flash adapter](boot-flash.md) — mocked-register controller,
+  metadata-only store callbacks, blocked-operation recovery and manifest-first
+  inactive erase steps; no physical MMIO binding or hardware acceptance.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,

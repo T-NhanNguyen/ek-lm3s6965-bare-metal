@@ -52,6 +52,14 @@ target_link_libraries(lm3s6965_boot_snapshot PUBLIC lm3s6965_boot_diag_publicati
 target_compile_options(lm3s6965_boot_snapshot PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
+# Injected controller only: no MMIO binding or startup/runtime integration.
+add_library(lm3s6965_boot_flash STATIC EXCLUDE_FROM_ALL
+    boot_flash.c boot_store.c boot_format.c)
+target_include_directories(lm3s6965_boot_flash PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+target_compile_options(lm3s6965_boot_flash PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.
 # Each factory instance compiles the adapter against that caller's stack.

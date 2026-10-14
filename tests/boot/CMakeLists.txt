@@ -80,6 +80,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
     target_compile_options(boot_snapshot PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
 endif()
+add_library(boot_flash STATIC ../../src/boot_flash.c)
+target_link_libraries(boot_flash PUBLIC boot_store)
+target_compile_options(boot_flash PRIVATE
+    -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+    -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+    target_compile_options(boot_flash PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
+        $<$<CONFIG:Release>:-Os>)
+endif()
 # The same standalone project is the cross-build entry point for the archive.
 # Native test executables are deliberately not built for bare-metal ARM.
 if(CMAKE_CROSSCOMPILING)
@@ -137,6 +146,11 @@ endforeach()
 add_test(NAME boot_allocator COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test_sbrk_linked.py --cc ${CMAKE_C_COMPILER}
     --sanitizers ${BOOT_SANITIZERS} ${SBRK_PROGRAMS})
+add_executable(test_flash test_flash.c)
+target_link_libraries(test_flash PRIVATE boot_flash)
+target_compile_options(test_flash PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
+    -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+add_test(NAME boot_flash COMMAND test_flash)
 add_executable(test_snapshot test_snapshot.c)
 target_link_libraries(test_snapshot PRIVATE boot_snapshot)
 target_compile_options(test_snapshot PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic)
@@ -233,11 +247,11 @@ foreach(target IN ITEMS boot_verify_fault test_verify_fault)
         -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 endforeach()
 if(BOOT_SANITIZERS)
-    foreach(target IN ITEMS test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
+    foreach(target IN ITEMS test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
                             boot_crypto_fault boot_verify_fault test_verify_fault package_verify)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endforeach()
-    foreach(target IN ITEMS test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
+    foreach(target IN ITEMS test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()
 endif()
@@ -251,5 +265,5 @@ set(BOOT_ASAN_OPTIONS "halt_on_error=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     string(APPEND BOOT_ASAN_OPTIONS ":detect_leaks=1")
 endif()
-set_tests_properties(boot_snapshot boot_diag_publication boot_allocator boot_diag boot_reset_handler boot_reset boot_lifecycle boot_store boot_format boot_crypto boot_verify boot_verify_fault boot_package PROPERTIES ENVIRONMENT
+set_tests_properties(boot_flash boot_snapshot boot_diag_publication boot_allocator boot_diag boot_reset_handler boot_reset boot_lifecycle boot_store boot_format boot_crypto boot_verify boot_verify_fault boot_package PROPERTIES ENVIRONMENT
     "ASAN_OPTIONS=${BOOT_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1;PYTHONDONTWRITEBYTECODE=1")
