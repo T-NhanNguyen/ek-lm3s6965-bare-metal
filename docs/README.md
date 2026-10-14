@@ -9,6 +9,12 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [Console output](console.md) — the SWO and UART console backends.
 - [If it fails](troubleshooting.md) — OpenOCD error messages and their causes.
 - [Memory map](memory-map.md) — the flash, SRAM, and peripheral address regions.
+- [Boot verifier resources](boot-resources.md) — reviewed Arm Release footprint,
+  isolated QEMU heap/stack measurements and the approved 8 KiB FTP heap;
+  the historical 2 KiB OOM fixture is not production capacity or full fit acceptance.
+- [Boot diagnostics and snapshot foundation](boot-diagnostics.md) — ABD1 64-byte ABI,
+  ordered foreground publication, external availability and same-owner read-only
+  metadata/actually-running snapshot; not full FTP status or hardware acceptance.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,

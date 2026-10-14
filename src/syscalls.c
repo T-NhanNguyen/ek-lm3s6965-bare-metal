@@ -8,32 +8,56 @@
 #include "trace.h"
 #include "uart.h"
 
-extern uint32_t _end;
-extern uint32_t _estack;
+extern unsigned char _heap_start;
+extern unsigned char _heap_static_end;
+extern unsigned char _heap_end;
 
-#define HEAP_STACK_RESERVE_BYTES 1024u
-
-static uintptr_t g_heap_break = 0u;
+static uintptr_t g_heap_break;
+static int g_heap_initialized;
 
 void *_sbrk(ptrdiff_t increment)
 {
-    if (g_heap_break == 0u)
-    {
-        g_heap_break = (uintptr_t)&_end;
-    }
+    const uintptr_t start = (uintptr_t)&_heap_start;
+    const uintptr_t base = (uintptr_t)&_heap_static_end;
+    const uintptr_t end = (uintptr_t)&_heap_end;
 
-    const uintptr_t stack_limit = (uintptr_t)&_estack - HEAP_STACK_RESERVE_BYTES;
-
-    if ((g_heap_break + (uintptr_t)increment) > stack_limit)
+    /* Static .heap inputs own [start, base); only [base, end) is dynamic.
+     * Compare integer addresses, never subtract unrelated linker pointers. */
+    if (start > base || base > end)
     {
         errno = ENOMEM;
         return (void *)-1;
     }
-
-    const uintptr_t previous_break = g_heap_break;
-    g_heap_break += (uintptr_t)increment;
-
-    return (void *)previous_break;
+    const uintptr_t previous = g_heap_initialized ? g_heap_break : base;
+    if (previous < base || previous > end)
+    {
+        errno = ENOMEM;
+        return (void *)-1;
+    }
+    uintptr_t next;
+    if (increment >= 0)
+    {
+        if ((uintmax_t)increment > (uintmax_t)(end - previous))
+        {
+            errno = ENOMEM;
+            return (void *)-1;
+        }
+        next = previous + (uintptr_t)increment;
+    }
+    else
+    {
+        /* PTRDIFF_MIN cannot be negated in its signed type. */
+        const uintmax_t amount = (uintmax_t)(-(increment + 1)) + 1u;
+        if (amount > (uintmax_t)(previous - base))
+        {
+            errno = ENOMEM;
+            return (void *)-1;
+        }
+        next = previous - (uintptr_t)amount;
+    }
+    g_heap_break = next;
+    g_heap_initialized = 1;
+    return (void *)previous;
 }
 
 int _write(int file_descriptor, char *buffer, int length)

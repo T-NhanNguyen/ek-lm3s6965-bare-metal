@@ -111,11 +111,18 @@ The [reusable FTP library guide](docs/ftp-library.md) covers `src/ftp_core.c`,
 Reuse the `lm3s6965_ftp_core` and `lm3s6965_ram_file` archives, or create a TCP adapter
 with `lm3s6965_add_ftp_tcp_library(target lwip_target)` and caller-exported lwIP configuration.
 
-The FreeRTOS kernel is a git submodule. Fetch it before the first build:
+Populate all pinned dependency sources explicitly before the first build:
 
 ```bash
-git submodule update --init --recursive
+python3 scripts/setup-dependencies.py
+python3 scripts/setup-dependencies.py --check
 ```
+
+See [manual pinned dependency setup](docs/dependencies.md) for exact FreeRTOS/lwIP
+commits, the checksum-verified official Mbed TLS archive, offline local-archive use,
+and preservation/authenticity limits. Sources are separate submodule repositories
+or ignored local extraction, not bulk vendor content in parent commits. Configure
+and build never fetch dependencies.
 
 Then configure and build:
 

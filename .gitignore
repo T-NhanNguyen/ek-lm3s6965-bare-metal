@@ -38,6 +38,11 @@ compile_commands.json
 .cache/
 
 # ---------------------------------------------------------------------------
+# Local dependency source; public provenance and configuration stay visible.
+# ---------------------------------------------------------------------------
+/third_party/mbedtls/
+
+# ---------------------------------------------------------------------------
 # Private development journal and agent scratch -- never published.
 # ---------------------------------------------------------------------------
 .dev-vault/

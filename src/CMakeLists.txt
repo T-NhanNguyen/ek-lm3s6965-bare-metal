@@ -37,6 +37,21 @@ foreach(target IN ITEMS lm3s6965_ftp_core lm3s6965_ram_file)
         ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 endforeach()
 
+# Ordered diagnostics are opt-in; no production startup/runtime integration.
+add_library(lm3s6965_boot_diag_publication STATIC EXCLUDE_FROM_ALL
+    boot_diag_publication.c boot_diag.c)
+target_include_directories(lm3s6965_boot_diag_publication PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+target_compile_options(lm3s6965_boot_diag_publication PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+# Read-only coherent capture; opt-in only, no startup/protocol integration.
+add_library(lm3s6965_boot_snapshot STATIC EXCLUDE_FROM_ALL
+    boot_snapshot.c boot_store.c boot_format.c)
+target_link_libraries(lm3s6965_boot_snapshot PUBLIC lm3s6965_boot_diag_publication)
+target_compile_options(lm3s6965_boot_snapshot PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.
 # Each factory instance compiles the adapter against that caller's stack.
