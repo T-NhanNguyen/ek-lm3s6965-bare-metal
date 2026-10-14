@@ -237,7 +237,8 @@ done
 python3 scripts/setup-dependencies.py --check
 ```
 
-Both modes: **14/14 PASS** (existing 13 plus `boot_resources`), native ASan/UBSan
+Historical validation at this gate: both modes **14/14 PASS** (existing 13 plus
+`boot_resources`), native ASan/UBSan
 enabled; package **20/20**, layout **13/13** with **120/120** retained-only proof
 cases, resources **4/4**, no skips. Four root builds in
 `/tmp/lm3s-gc-root-{Debug,Release}-{OFF,ON}` use FTP enabled and
@@ -271,8 +272,9 @@ python3 tests/boot/test_resource_execution.py \
 
 Without `--build`, the runner fresh-builds and gates all four Arm Release ELFs (baseline, boot, actual FTP, old 2 KiB fixture).
 `BOOT_ARM_GCC` and `BOOT_QEMU` can select installed tools. The default probe option
-is OFF, so existing reviewed link-only builds are unchanged. Native CTest adds
-`boot_resource_execution`, bringing the suite to **15 tests**. Missing QEMU prints **UNSUPPORTED** and
+is OFF, so existing reviewed link-only builds are unchanged. Native CTest includes
+`boot_resource_execution`. The current suite has **18 tests**. The earlier suite
+had **15 tests** after this execution test was added. Missing QEMU prints **UNSUPPORTED** and
 returns 77 (CTest explicitly marks unsupported/skipped, never passed); current
 QEMU is available and all runs execute, with **no skips**. Each QEMU invocation
 has a **20-second timeout**, with a **180-second outer CTest bound**. This is a
@@ -340,8 +342,10 @@ Case indices are stable and recorded in JSON:
 | 7–13 / 14–20 | A / B minimum: corrupt format (2), tampered signed manifest (4), tampered payload/hash (8), independently signed invalid MSP vector (9), reader zero/error (6), authenticated-phase cancel (7), first-allocation failure (5) |
 | 21–23 / 24–26 | A / B maximum: payload/hash tamper (8), reader error (6), authenticated-phase cancel (7) |
 
-There are **24 verifier cases + 3 calibrations per configuration (54 fresh QEMU
-runs)**. This deliberately avoids exhaustive allocation/signature mutation cost.
+There are **24 verifier cases + 3 calibrations per configuration**.
+The three configurations are boot, actual FTP and the old 2 KiB FTP fixture.
+The current gate runs **81 fresh QEMU cases**. The earlier two-configuration
+gate ran **54 cases**. This deliberately avoids exhaustive allocation/signature mutation cost.
 Successful output checks slot, length, hash, actual MSP/reset vector and completed
 reader length; all failures prove the caller's output remains byte-for-byte
 unchanged. The real Mbed TLS 3.6.7 ECDSA/SHA256 paths execute without crypto flags,

@@ -1,6 +1,8 @@
 /* Coherent foreground sampling, not diagnostic source attribution or status formatting. */
 #ifndef LM3S6965_BOOT_SNAPSHOT_H
 #define LM3S6965_BOOT_SNAPSHOT_H
+
+#include "lm3s6965/boot_diag.h"
 #include "lm3s6965/boot_diag_publication.h"
 #include "lm3s6965/boot_store.h"
 #include "lm3s6965/boot_verify.h"

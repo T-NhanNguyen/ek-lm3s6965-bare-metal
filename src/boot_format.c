@@ -1,5 +1,7 @@
 #include "lm3s6965/boot_format.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 static const uint8_t manifest_domain[16] = "LM3S6965-FW-V1";

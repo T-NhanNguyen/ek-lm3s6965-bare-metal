@@ -1,6 +1,10 @@
 /* Pure captured-reset classification and atomic metadata proposal, no MMIO. */
 #ifndef LM3S6965_BOOT_RESET_H
 #define LM3S6965_BOOT_RESET_H
+
+#include <stdint.h>
+
+#include "lm3s6965/boot_format.h"
 #include "lm3s6965/boot_lifecycle.h"
 
 #define BOOT_RESET_SW UINT32_C(0x10)

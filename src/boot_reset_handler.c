@@ -1,5 +1,13 @@
 #include "lm3s6965/boot_reset_handler.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_lifecycle.h"
+#include "lm3s6965/boot_reset.h"
+#include "lm3s6965/boot_store.h"
+
 static int overlaps(const void *a, size_t as, const void *b, size_t bs)
 {
     uintptr_t x = (uintptr_t)a, y = (uintptr_t)b;

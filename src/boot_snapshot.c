@@ -1,5 +1,15 @@
 #include "lm3s6965/boot_snapshot.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_diag.h"
+#include "lm3s6965/boot_diag_publication.h"
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_verify.h"
+
 static bool overlaps(const void *a, size_t an, const void *b, size_t bn)
 {
     uintptr_t x = (uintptr_t)a, y = (uintptr_t)b;

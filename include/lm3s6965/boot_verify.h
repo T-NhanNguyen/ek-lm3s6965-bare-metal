@@ -2,6 +2,9 @@
 #ifndef LM3S6965_BOOT_VERIFY_H
 #define LM3S6965_BOOT_VERIFY_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "lm3s6965/boot_format.h"
 
 #define BOOT_VERIFY_CHUNK_BYTES 256u

@@ -21,7 +21,9 @@ python3 tools/boot/package.py --input build/application-A.elf --input-format elf
 For B, link a separate application at `0x24000`, select `--slot B`, and choose a
 separate output. Changing slot flags, vector addresses or VTOR does **not**
 relocate code. Existing project applications linked at zero are not eligible
-inputs. This increment adds no production A/B linker or startup configuration.
+inputs. The repository supplies self-contained slot scripts: `linker/app_a.ld`
+for A and `linker/app_b.ld` for B. Use the selected script for the final link.
+The root application build has no slot selection or slot startup integration.
 The test-only linker fixtures are not usable applications.
 
 **GNU ELF producer gate:** pass `-Wl,-z,max-page-size=0x100` on the final

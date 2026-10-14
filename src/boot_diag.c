@@ -1,5 +1,11 @@
 #include "lm3s6965/boot_diag.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_format.h"
+
 static uint32_t get32(const uint8_t *p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |

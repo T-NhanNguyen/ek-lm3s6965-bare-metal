@@ -1,5 +1,11 @@
 #include "lm3s6965/boot_lifecycle.h"
+
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_verify.h"
 
 /* Subtraction avoids pointer-end overflow; no relational comparison of
  * unrelated C pointers. Valid complete objects are required by the API. */

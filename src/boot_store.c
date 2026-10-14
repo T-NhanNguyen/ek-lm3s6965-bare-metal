@@ -1,5 +1,10 @@
 #include "lm3s6965/boot_store.h"
+
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/boot_format.h"
 
 static int adapter_valid(const boot_store_adapter_t *a)
 {

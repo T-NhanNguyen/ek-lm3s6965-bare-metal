@@ -1,6 +1,10 @@
 /* Synchronous commit-last metadata primitive; no target flash driver. */
 #ifndef LM3S6965_BOOT_STORE_H
 #define LM3S6965_BOOT_STORE_H
+
+#include <stddef.h>
+#include <stdint.h>
+
 #include "lm3s6965/boot_format.h"
 
 /* Callbacks return zero only on complete success. Failure may still have

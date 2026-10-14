@@ -1,6 +1,10 @@
 /* Pure lifecycle metadata proposals; no flash, MMIO or reset classification. */
 #ifndef LM3S6965_BOOT_LIFECYCLE_H
 #define LM3S6965_BOOT_LIFECYCLE_H
+
+#include <stdint.h>
+
+#include "lm3s6965/boot_format.h"
 #include "lm3s6965/boot_verify.h"
 
 /* Evidence is explicit, but NOT an authentication token. Caller provenance:

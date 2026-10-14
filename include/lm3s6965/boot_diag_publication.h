@@ -1,5 +1,9 @@
 #ifndef LM3S6965_BOOT_DIAG_PUBLICATION_H
 #define LM3S6965_BOOT_DIAG_PUBLICATION_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "lm3s6965/boot_diag.h"
 
 /* One zero-initialized owner per block, privileged serialized foreground only.

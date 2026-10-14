@@ -1,5 +1,11 @@
 #include "lm3s6965/boot_reset.h"
+
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_lifecycle.h"
 
 static int overlaps(const void *a, size_t as, const void *b, size_t bs)
 {

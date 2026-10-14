@@ -1,6 +1,10 @@
 /* Ordered callback-only reset pass; no MMIO, execution or reset request. */
 #ifndef LM3S6965_BOOT_RESET_HANDLER_H
 #define LM3S6965_BOOT_RESET_HANDLER_H
+
+#include <stdint.h>
+
+#include "lm3s6965/boot_lifecycle.h"
 #include "lm3s6965/boot_reset.h"
 #include "lm3s6965/boot_store.h"
 

@@ -1,12 +1,17 @@
 #include "lm3s6965/boot_verify.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
-#include "boot_demo_public_key.h"
+
 #include "mbedtls/bignum.h"
 #include "mbedtls/ecdsa.h"
 #include "mbedtls/ecp.h"
 #include "mbedtls/platform_util.h"
 #include "mbedtls/sha256.h"
+
+#include "boot_demo_public_key.h"
+#include "lm3s6965/boot_format.h"
 
 static int notify(boot_verify_progress_fn progress, void *context,
                   boot_verify_phase_t phase, uint32_t completed, uint32_t total)

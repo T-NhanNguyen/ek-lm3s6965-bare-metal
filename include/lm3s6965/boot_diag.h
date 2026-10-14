@@ -2,8 +2,11 @@
 #ifndef LM3S6965_BOOT_DIAG_H
 #define LM3S6965_BOOT_DIAG_H
 
-#include "lm3s6965/boot_format.h"
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_format.h"
 
 #define BOOT_DIAG_MAGIC UINT32_C(0x31444241)
 #define BOOT_DIAG_VERSION 1u

@@ -239,10 +239,10 @@ ctest --test-dir /tmp/lm3s-layout-host-debug --output-on-failure
 ```
 
 Repeat with `Release` and a different build directory. The current host suite
-has fourteen CTest entries (the prior thirteen plus `boot_resources`), including
-`boot_allocator` and `boot_diag`. Debug and Release each pass 14/14 with native
-ASan/UBSan; `boot_resources` fresh-cross-links the Release Arm fixture and runs
-four artifact/parser tests without executing target code.
+has eighteen CTest entries, including `boot_allocator` and `boot_diag`.
+At the earlier fourteen-entry gate, Debug and Release each passed 14/14 with
+native ASan/UBSan. `boot_resources` fresh-cross-links the Release Arm fixture
+and runs four artifact/parser tests without executing target code.
 `boot_layout` runs thirteen Python tests with
 real GNU Arm links, no tool-missing skips. `BOOT_ARM_GCC` may select an absolute
 compiler path; otherwise official installed bundles are preferred over PATH.
