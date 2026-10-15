@@ -86,6 +86,10 @@ success; nonzero may already have affected hardware.
    protected with the same foreground obligations. There is no candidate
    60-second timer or metadata operation in this increment.
 
+The optional [runtime verifier bridge](boot-runtime-watchdog.md) now composes
+these actual callbacks through reset/selection in HOST scope, adopting only an
+already configured controller and retaining all unmeasured intervals below.
+
 A verifier callback bridge must use the **current epoch on each callback** and
 one stable verification ID per invocation; callbacks are scheduling points, not
 blind feed instructions. BEGIN cannot feed during nonrestartable ECDSA; no new

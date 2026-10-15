@@ -1,4 +1,5 @@
 #include "lm3s6965/boot_watchdog.h"
+#include "boot_watchdog_internal.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -119,35 +120,56 @@ boot_watchdog_result_t boot_watchdog_configure(boot_watchdog_t *w,
     return leave(w, BOOT_WATCHDOG_OK);
 }
 
-boot_watchdog_result_t boot_watchdog_service(boot_watchdog_t *w,
+static boot_watchdog_result_t quarantine_held(boot_watchdog_t *w,
+                                             boot_watchdog_result_t result)
+{
+    w->blocked = 1u;
+    w->evidence = 0u;
+    return result;
+}
+
+static boot_watchdog_result_t fault_held(boot_watchdog_t *w,
+                                        boot_watchdog_result_t result)
+{
+    (void)lock(w, 0u, 1u);
+    return quarantine_held(w, result);
+}
+
+boot_watchdog_result_t boot_watchdog_service_held(boot_watchdog_t *w,
     boot_watchdog_owner_t owner, uint32_t epoch)
 {
     uint32_t value;
-    boot_watchdog_result_t result = enter(w);
+    boot_watchdog_result_t result = ready(w, owner, epoch);
     if (result != BOOT_WATCHDOG_OK) return result;
-    result = ready(w, owner, epoch);
-    if (result != BOOT_WATCHDOG_OK) return leave(w, result);
     if (w->evidence != (owner == BOOT_WATCHDOG_BOOT ? 1u : APP_REQUIRED))
-        return leave(w, BOOT_WATCHDOG_PROGRESS);
-    if (w->epoch == UINT32_MAX) return stop(w, BOOT_WATCHDOG_STATE);
+        return BOOT_WATCHDOG_PROGRESS;
+    if (w->epoch == UINT32_MAX) return quarantine_held(w, BOOT_WATCHDOG_STATE);
     /* Evidence is never recycled even if a subsequent operation is ambiguous. */
     w->evidence = 0u;
-    if (rr(w, BOOT_WATCHDOG_RCGC0, &value) != 0) return stop(w, BOOT_WATCHDOG_IO);
-    if ((value & WDT_CLOCK) == 0u) return stop(w, BOOT_WATCHDOG_VERIFY);
-    if (rr(w, BOOT_WATCHDOG_CTL, &value) != 0) return stop(w, BOOT_WATCHDOG_IO);
-    if ((value & WDT_ENABLE) != WDT_ENABLE) return stop(w, BOOT_WATCHDOG_VERIFY);
-    if (rr(w, BOOT_WATCHDOG_LOAD, &value) != 0) return stop(w, BOOT_WATCHDOG_IO);
-    if (value != w->reload) return stop(w, BOOT_WATCHDOG_VERIFY);
+    if (rr(w, BOOT_WATCHDOG_RCGC0, &value) != 0) return quarantine_held(w, BOOT_WATCHDOG_IO);
+    if ((value & WDT_CLOCK) == 0u) return quarantine_held(w, BOOT_WATCHDOG_VERIFY);
+    if (rr(w, BOOT_WATCHDOG_CTL, &value) != 0) return quarantine_held(w, BOOT_WATCHDOG_IO);
+    if ((value & WDT_ENABLE) != WDT_ENABLE) return quarantine_held(w, BOOT_WATCHDOG_VERIFY);
+    if (rr(w, BOOT_WATCHDOG_LOAD, &value) != 0) return quarantine_held(w, BOOT_WATCHDOG_IO);
+    if (value != w->reload) return quarantine_held(w, BOOT_WATCHDOG_VERIFY);
     result = lock(w, WDT_UNLOCK, 0u);
-    if (result != BOOT_WATCHDOG_OK) return fault(w, result);
+    if (result != BOOT_WATCHDOG_OK) return fault_held(w, result);
     /* ICR is WO/indeterminate: never read it or compare running VALUE to LOAD. */
     if (wr(w, BOOT_WATCHDOG_ICR, 0u) != 0 ||
-        rr(w, BOOT_WATCHDOG_RIS, &value) != 0) return fault(w, BOOT_WATCHDOG_IO);
-    if ((value & UINT32_C(1)) != 0u) return fault(w, BOOT_WATCHDOG_VERIFY);
+        rr(w, BOOT_WATCHDOG_RIS, &value) != 0) return fault_held(w, BOOT_WATCHDOG_IO);
+    if ((value & UINT32_C(1)) != 0u) return fault_held(w, BOOT_WATCHDOG_VERIFY);
     result = lock(w, 0u, 1u);
-    if (result != BOOT_WATCHDOG_OK) return fault(w, result);
+    if (result != BOOT_WATCHDOG_OK) return fault_held(w, result);
     ++w->epoch;
-    return leave(w, BOOT_WATCHDOG_OK);
+    return BOOT_WATCHDOG_OK;
+}
+
+boot_watchdog_result_t boot_watchdog_service(boot_watchdog_t *w,
+    boot_watchdog_owner_t owner, uint32_t epoch)
+{
+    boot_watchdog_result_t result = enter(w);
+    if (result != BOOT_WATCHDOG_OK) return result;
+    return leave(w, boot_watchdog_service_held(w, owner, epoch));
 }
 
 boot_watchdog_result_t boot_watchdog_transfer(boot_watchdog_t *w, uint32_t epoch)
@@ -163,30 +185,28 @@ boot_watchdog_result_t boot_watchdog_transfer(boot_watchdog_t *w, uint32_t epoch
     return leave(w, BOOT_WATCHDOG_OK);
 }
 
-boot_watchdog_result_t boot_watchdog_boot_report(boot_watchdog_t *w,
+boot_watchdog_result_t boot_watchdog_report_held(boot_watchdog_t *w,
     uint32_t epoch, uint32_t verification, boot_verify_phase_t phase,
     uint32_t completed, uint32_t total)
 {
-    boot_watchdog_result_t result = enter(w);
+    boot_watchdog_result_t result = ready(w, BOOT_WATCHDOG_BOOT, epoch);
     if (result != BOOT_WATCHDOG_OK) return result;
-    result = ready(w, BOOT_WATCHDOG_BOOT, epoch);
-    if (result != BOOT_WATCHDOG_OK) return leave(w, result);
     if (phase == BOOT_VERIFY_MANIFEST_BEGIN)
     {
         if (verification == 0u || verification <= w->verification || completed != 0u ||
             total < BOOT_PAYLOAD_MIN || total > BOOT_PAYLOAD_MAX || total % 4u != 0u)
-            return leave(w, BOOT_WATCHDOG_PROGRESS);
+            return BOOT_WATCHDOG_PROGRESS;
         w->verification = verification;
         w->total = total;
         w->completed = w->evidence = 0u;
         w->phase = 1u;
-        return leave(w, BOOT_WATCHDOG_OK);
+        return BOOT_WATCHDOG_OK;
     }
     if (verification != w->verification || total != w->total || w->phase == 0u)
-        return leave(w, BOOT_WATCHDOG_PROGRESS);
+        return BOOT_WATCHDOG_PROGRESS;
     if (phase == BOOT_VERIFY_MANIFEST_AUTHENTICATED)
     {
-        if (w->phase != 1u || completed != 0u) return leave(w, BOOT_WATCHDOG_PROGRESS);
+        if (w->phase != 1u || completed != 0u) return BOOT_WATCHDOG_PROGRESS;
         w->phase = 2u;
     }
     else if (phase == BOOT_VERIFY_PAYLOAD_PROGRESS)
@@ -195,12 +215,21 @@ boot_watchdog_result_t boot_watchdog_boot_report(boot_watchdog_t *w,
         uint32_t chunk = remaining < BOOT_VERIFY_CHUNK_BYTES ? remaining : BOOT_VERIFY_CHUNK_BYTES;
         if (w->phase != 2u || remaining == 0u || completed <= w->completed ||
             completed > total || completed - w->completed != chunk)
-            return leave(w, BOOT_WATCHDOG_PROGRESS);
+            return BOOT_WATCHDOG_PROGRESS;
         w->completed = completed;
     }
-    else return leave(w, BOOT_WATCHDOG_PROGRESS);
+    else return BOOT_WATCHDOG_PROGRESS;
     w->evidence = 1u;
-    return leave(w, BOOT_WATCHDOG_OK);
+    return BOOT_WATCHDOG_OK;
+}
+
+boot_watchdog_result_t boot_watchdog_boot_report(boot_watchdog_t *w,
+    uint32_t epoch, uint32_t verification, boot_verify_phase_t phase,
+    uint32_t completed, uint32_t total)
+{
+    boot_watchdog_result_t result = enter(w);
+    if (result != BOOT_WATCHDOG_OK) return result;
+    return leave(w, boot_watchdog_report_held(w, epoch, verification, phase, completed, total));
 }
 
 boot_watchdog_result_t boot_watchdog_application_report(boot_watchdog_t *w,

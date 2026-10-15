@@ -125,6 +125,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
     target_compile_options(boot_runtime PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
 endif()
+add_library(boot_runtime_watchdog STATIC ../../src/boot_runtime_watchdog.c)
+target_link_libraries(boot_runtime_watchdog PUBLIC boot_runtime boot_watchdog)
+target_compile_options(boot_runtime_watchdog PRIVATE
+    -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+    -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+    target_compile_options(boot_runtime_watchdog PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
+        $<$<CONFIG:Release>:-Os>)
+endif()
 # The same standalone project is the cross-build entry point for the archive.
 # Native test executables are deliberately not built for bare-metal ARM.
 if(CMAKE_CROSSCOMPILING)
@@ -297,7 +306,7 @@ foreach(target IN ITEMS boot_verify_fault test_verify_fault)
         -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 endforeach()
 if(BOOT_SANITIZERS)
-    foreach(target IN ITEMS boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
+    foreach(target IN ITEMS boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
                             boot_crypto_fault boot_verify_fault test_verify_fault package_verify)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endforeach()

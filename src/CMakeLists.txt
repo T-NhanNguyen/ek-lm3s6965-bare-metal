@@ -90,6 +90,14 @@ target_link_libraries(lm3s6965_boot_runtime PUBLIC lm3s6965_boot_launch)
 target_compile_options(lm3s6965_boot_runtime PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
+# Genuine verifier-progress bridge, caller-established watchdog only.
+add_library(lm3s6965_boot_runtime_watchdog STATIC EXCLUDE_FROM_ALL
+    boot_runtime_watchdog.c)
+target_link_libraries(lm3s6965_boot_runtime_watchdog PUBLIC
+    lm3s6965_boot_runtime lm3s6965_boot_watchdog)
+target_compile_options(lm3s6965_boot_runtime_watchdog PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.
 # Each factory instance compiles the adapter against that caller's stack.

@@ -4,6 +4,9 @@
 `boot_select`, using the real verifier, crypto, lifecycle and commit-last store.
 It does not execute an image, bind MMIO, establish/service a watchdog, impose a
 candidate deadline, or implement production startup/handoff/FTP integration.
+Use the optional [runtime watchdog bridge](boot-runtime-watchdog.md) to adopt an
+already configured watchdog and service actual verifier milestones across this
+unchanged raw API; all unmeasured service gaps and physical limits remain.
 
 ## Caller lifecycle
 
