@@ -27,6 +27,9 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [Verified candidate-launch decision](boot-launch.md) — independent image verification,
   durable READY to TRIAL and zero-write authoritative retries; no reset composition
   or physical handoff.
+- [Verified boot selection](boot-select.md) — candidate-first, zero-change confirmed
+  fallback, durable previous promotion and explicit no-executable recovery;
+  HOST composition only, execution gate pending.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,

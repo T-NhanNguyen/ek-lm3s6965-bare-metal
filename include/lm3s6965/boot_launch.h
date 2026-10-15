@@ -34,7 +34,9 @@ typedef struct
 typedef struct
 {
     boot_verified_image_t image;
-    boot_store_snapshot_t snapshot; /* exact authoritative TRIAL readback */
+    /* Candidate API: exact authoritative TRIAL readback. boot_select may
+     * instead return unchanged confirmed authority or promoted readback. */
+    boot_store_snapshot_t snapshot;
 } boot_launch_decision_t;
 
 /* Caller prerequisite: reset handler returned BOOT_RESET_HANDLER_OK in this

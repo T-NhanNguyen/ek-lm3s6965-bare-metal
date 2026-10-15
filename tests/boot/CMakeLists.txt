@@ -107,7 +107,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
     target_compile_options(boot_handoff PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
 endif()
-add_library(boot_launch STATIC ../../src/boot_launch.c)
+add_library(boot_launch STATIC ../../src/boot_launch.c ../../src/boot_select.c)
 target_link_libraries(boot_launch PUBLIC boot_verify boot_store boot_lifecycle)
 target_compile_options(boot_launch PRIVATE
     -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion

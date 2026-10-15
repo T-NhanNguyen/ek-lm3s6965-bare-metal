@@ -9,7 +9,7 @@ target_compile_options(test_launch PRIVATE
 set_target_properties(test_launch PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 add_test(NAME boot_launch COMMAND test_launch)
 # Existing allocator-intercepted real crypto copy; no production fault API.
-add_library(boot_launch_fault STATIC ../../src/boot_launch.c)
+add_library(boot_launch_fault STATIC ../../src/boot_launch.c ../../src/boot_select.c)
 target_link_libraries(boot_launch_fault PUBLIC boot_verify_fault boot_store boot_lifecycle)
 add_executable(test_launch_fault test_launch.c ../boot/flash_model.c)
 target_include_directories(test_launch_fault PRIVATE ../boot)
@@ -22,14 +22,26 @@ foreach(target IN ITEMS boot_launch_fault test_launch_fault)
     set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 endforeach()
 add_test(NAME boot_launch_fault COMMAND test_launch_fault)
+foreach(variant IN ITEMS "" "_fault")
+    add_executable(test_select${variant} test_select.c ../boot/flash_model.c)
+    target_include_directories(test_select${variant} PRIVATE ../boot)
+    target_link_libraries(test_select${variant} PRIVATE boot_launch${variant})
+    target_compile_options(test_select${variant} PRIVATE
+        -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+        -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+    set_target_properties(test_select${variant} PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+    add_test(NAME boot_select${variant} COMMAND test_select${variant})
+endforeach()
+target_compile_definitions(test_select_fault PRIVATE BOOT_VERIFY_FAULT_INJECTION)
 set(BOOT_LAUNCH_ASAN_OPTIONS "halt_on_error=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     string(APPEND BOOT_LAUNCH_ASAN_OPTIONS ":detect_leaks=1")
 endif()
-set_tests_properties(boot_launch boot_launch_fault PROPERTIES ENVIRONMENT
+set_tests_properties(boot_launch boot_launch_fault boot_select boot_select_fault PROPERTIES ENVIRONMENT
     "ASAN_OPTIONS=${BOOT_LAUNCH_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1")
 if(BOOT_SANITIZERS)
-    foreach(target IN ITEMS test_launch boot_launch_fault test_launch_fault)
+    foreach(target IN ITEMS test_launch boot_launch_fault test_launch_fault test_select test_select_fault)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endforeach()
     target_link_options(boot_launch_fault INTERFACE -fsanitize=address,undefined)

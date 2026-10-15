@@ -3,6 +3,8 @@
 `boot_launch_candidate` in `include/lm3s6965/boot_launch.h` combines the real
 stored-image verifier, lifecycle proposal and commit-last metadata store. It
 publishes a decision. It does not execute an image or perform a handoff.
+[Boot selection](boot-select.md) now composes this unchanged candidate transaction
+with confirmed CURRENT, durable PREVIOUS promotion and explicit recovery.
 
 ## Caller boundary
 
@@ -76,8 +78,10 @@ false adapter, later corruption or violated exclusive ownership.
 ## Build and host gate
 
 The established `tests/boot` entry point includes the launch tests as a supported
-subdirectory. It discovers 24 tests (the existing 22 plus `boot_launch` and
-`boot_launch_fault`); target-handoff registration and fixtures are unchanged.
+subdirectory. It discovers 26 tests (the existing 22 plus `boot_launch`,
+`boot_launch_fault`, `boot_select` and `boot_select_fault`); target-handoff
+registration and fixtures are unchanged. Selection test execution is pending
+its separate test-merit-gate.
 Build all targets before requesting the unfiltered host gate:
 
 ```sh

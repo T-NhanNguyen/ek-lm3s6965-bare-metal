@@ -73,9 +73,9 @@ target_link_libraries(lm3s6965_boot_handoff PUBLIC lm3s6965_boot_watchdog)
 target_compile_options(lm3s6965_boot_handoff PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
-# Candidate decision wrapper only. Consumers must also link the verifier,
+# Candidate/selection decisions only. Consumers must also link the verifier,
 # lifecycle, store, format and crypto dependencies; this is not a boot image.
-add_library(lm3s6965_boot_launch STATIC EXCLUDE_FROM_ALL boot_launch.c)
+add_library(lm3s6965_boot_launch STATIC EXCLUDE_FROM_ALL boot_launch.c boot_select.c)
 target_include_directories(lm3s6965_boot_launch PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 target_compile_options(lm3s6965_boot_launch PRIVATE
