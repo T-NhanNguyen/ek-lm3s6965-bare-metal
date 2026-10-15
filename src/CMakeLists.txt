@@ -81,6 +81,15 @@ target_include_directories(lm3s6965_boot_launch PUBLIC
 target_compile_options(lm3s6965_boot_launch PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
+# One-shot HOST reset->selection composition, not startup/MMIO or a boot image.
+# Consumers supply the verifier/crypto dependencies and final link policy.
+add_library(lm3s6965_boot_runtime STATIC EXCLUDE_FROM_ALL
+    boot_runtime.c boot_reset_handler.c boot_reset.c boot_lifecycle.c
+    boot_store.c boot_format.c)
+target_link_libraries(lm3s6965_boot_runtime PUBLIC lm3s6965_boot_launch)
+target_compile_options(lm3s6965_boot_runtime PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.
 # Each factory instance compiles the adapter against that caller's stack.

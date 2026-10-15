@@ -30,6 +30,8 @@ These documents cover the detailed topics that the main [README](../README.md) r
 - [Verified boot selection](boot-select.md) — candidate-first, zero-change confirmed
   fallback, durable previous promotion and explicit no-executable recovery;
   HOST composition only, execution gate pending.
+- [Bounded boot reset and selection](boot-runtime.md) — once-per-boot reset handling
+  and verified selection composition; HOST decision scope, no physical handoff.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,
