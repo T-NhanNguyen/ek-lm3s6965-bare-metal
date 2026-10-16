@@ -6,7 +6,7 @@
 #include "lwip/tcp.h"
 #include <stdlib.h>
 #include "lwip/priv/tcp_priv.h"
-#include "../../../../src/ftp_tcp.c"
+#include "../../../src/ftp_tcp.c"
 #include "lm3s6965/ram_file.h"
 static ram_file_t fixture;
 static uint8_t fixture_a[4096], fixture_b[4096];

@@ -194,6 +194,46 @@ static void primitive(void)
     assert(boot_flash_erase(&f, BOOT_METADATA_PAGE0) == BOOT_FLASH_TIMEOUT);
     assert(boot_flash_recover(&f) == BOOT_FLASH_TIMEOUT);
     assert(m.commands == 1u);
+    /* One controller, two distinct blocked episodes: recovery failures and
+     * ordinary BLOCKED calls must never replace the initiating diagnostic. */
+    setup(); m.delay = 0;
+    assert(f.blocked == 0u && f.blocked_result == BOOT_FLASH_OK);
+    assert(boot_flash_erase(&f, BOOT_METADATA_PAGE0) == BOOT_FLASH_TIMEOUT);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_TIMEOUT);
+    total = m.calls;
+    assert(boot_flash_read(&f, BOOT_METADATA_PAGE0, bytes, 4) == BOOT_FLASH_BLOCKED);
+    assert(boot_flash_program(&f, BOOT_METADATA_PAGE1, 0) == BOOT_FLASH_BLOCKED);
+    assert(boot_flash_erase(&f, BOOT_METADATA_PAGE1) == BOOT_FLASH_BLOCKED);
+    assert(m.calls == total && m.commands == 1u);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_TIMEOUT);
+    assert(boot_flash_recover(&f) == BOOT_FLASH_TIMEOUT);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_TIMEOUT);
+    m.fail = m.calls + 1u;
+    assert(boot_flash_recover(&f) == BOOT_FLASH_IO);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_TIMEOUT);
+    m.fail = 0;
+    m.remaining = 1u; /* The outstanding erase completes on the next poll. */
+    assert(boot_flash_recover(&f) == BOOT_FLASH_OK);
+    assert(f.blocked == 0u && f.blocked_result == BOOT_FLASH_OK);
+    assert(m.fmc == 0u && m.ris == 0u && m.commands == 1u);
+
+    /* No reinitialization: the next idle-observation fault is a NEW cause. */
+    m.fail = m.calls + 1u;
+    assert(boot_flash_read(&f, BOOT_METADATA_PAGE0, bytes, 4) == BOOT_FLASH_IO);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_IO);
+    total = m.calls;
+    assert(boot_flash_read(&f, BOOT_METADATA_PAGE0, bytes, 4) == BOOT_FLASH_BLOCKED);
+    assert(boot_flash_program(&f, BOOT_METADATA_PAGE1, 0) == BOOT_FLASH_BLOCKED);
+    assert(boot_flash_erase(&f, BOOT_METADATA_PAGE1) == BOOT_FLASH_BLOCKED);
+    assert(m.calls == total && m.commands == 1u);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_IO);
+    m.fail = 0; m.ris = 3; m.sticky = 1;
+    assert(boot_flash_recover(&f) == BOOT_FLASH_STATUS);
+    assert(f.blocked != 0u && f.blocked_result == BOOT_FLASH_IO);
+    m.sticky = 0;
+    assert(boot_flash_recover(&f) == BOOT_FLASH_OK);
+    assert(f.blocked == 0u && f.blocked_result == BOOT_FLASH_OK);
+    assert(m.fmc == 0u && m.ris == 0u && m.commands == 1u);
     setup(); m.fmc = 8;
     assert(boot_flash_erase(&f, BOOT_METADATA_PAGE0) == BOOT_FLASH_TIMEOUT);
     assert(m.commands == 0u);

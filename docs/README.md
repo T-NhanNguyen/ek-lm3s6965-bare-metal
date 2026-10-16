@@ -32,9 +32,19 @@ These documents cover the detailed topics that the main [README](../README.md) r
   HOST composition only, execution gate pending.
 - [Bounded boot reset and selection](boot-runtime.md) — once-per-boot reset handling
   and verified selection composition; HOST decision scope, no physical handoff.
-- [Runtime verifier watchdog bridge](boot-runtime-watchdog.md) — caller-established
-  protection, lifetime stream IDs and genuine signature/chunk servicing across
-  one-shot runtime selection; HOST scope, physical timing/gaps unmeasured.
+- [Protected runtime selection and launch intent](boot-runtime-watchdog.md) —
+  adopt caller-established protection and service genuine verifier progress.
+  Compose selection with final intent on the same watchdog and current epoch.
+  HOST scope only. Physical timing and service gaps remain unmeasured.
+- [HOST application service and PC workflow](boot-service.md) — coherent status,
+  strict confirm parsing, durable confirmation, and scripted PC transport.
+  Physical flash/startup wiring and measured scheduling remain open.
+- [HOST firmware receiver](boot-receive.md) — separate bounded manifest-first
+  transaction through durable invalidation, streaming, stored verification and
+  READY/reset intent. No synchronous RAM backend replacement or hardware claim.
+- [Opt-in FTP boot binding](ftp-boot-binding.md) — production core/raw-lwIP
+  routing, exact-prefix WAIT/EOF and foreground real boot operations; RAM remains
+  synchronous. No enabled updater/startup/MMIO/reset actuator or hardware claim.
 - [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
 - [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
 - [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,

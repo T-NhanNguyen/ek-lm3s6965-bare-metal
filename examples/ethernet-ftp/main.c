@@ -76,6 +76,11 @@ int main(void)
             transport_started = ftp_tcp_start(lm3s_netif_address()) == ERR_OK;
         }
         sys_check_timeouts();
+        /* Services retained TCP prefixes and at most ONE optional operation
+         * step, outside raw callbacks, after Ethernet and timers. This image
+         * binds RAM hello only: no boot/controller/running-provenance startup
+         * objects or reset actuator exist here. An updater must supply those
+         * and bind ftp_boot_operation explicitly; do not enable a fake one. */
         ftp_tcp_service(sys_now());
     }
 }

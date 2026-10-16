@@ -238,10 +238,17 @@ static void input_data(void)
             data.failed = true;
             return;
         }
-        if (ftp_core_upload_chunk(bytes, n, now)) credit(&data, n);
+        size_t accepted = 0u;
+        (void)ftp_core_upload_span(bytes, n, now, &accepted);
+        if (accepted != 0u) credit(&data, (u16_t)accepted);
         actions();
     }
-    if (data.pcb && data.fin && !data.rx && !data.closing) {
+    /* Reoffer refused chains before observing EOF. receive() may set fin only
+     * after lwIP delivers the retained chain (including its FIN marker). */
+    if (data.pcb && !data.rx && data.pcb->refused_data)
+        (void)tcp_process_refused_data(data.pcb);
+    if (data.pcb && data.fin && !data.rx && !data.pcb->refused_data && !data.closing &&
+        !ftp_core_eof_pending()) {
         if (ftp_core_direction() == FTP_UPLOAD) {
             (void)ftp_core_upload_eof(now);
             actions();
@@ -298,7 +305,7 @@ static void flush_close(struct channel *c)
     }
     if (!c->closing) return;
     /* Never graceful-close with uncredited receive bytes (lwIP sends RST). */
-    if (c->rx) return;
+    if (c->rx || c->pcb->refused_data) return;
     p = c->pcb;
     /* Pinned lwIP 2.2.1: TX-only shutdown retains application ownership,
      * but tcp_close_shutdown_fin masks ERR_MEM as ERR_OK + TF_CLOSEPEND.
@@ -347,6 +354,9 @@ void ftp_tcp_service(uint32_t time)
     write_control();
     flush_close(&control); /* submit 150 before enabling any data work */
     input_data();
+    /* One boot action per turn, outside every raw TCP callback. */
+    ftp_core_foreground(now);
+    actions();
     write_data();
     flush_close(&data);
     actions();

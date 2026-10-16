@@ -26,7 +26,7 @@ LM3S9B9x evaluation kit and matches two fields that this board does not:
 The on-board ICDI is the same FTDI FT2232 design with the same pin layout, but a different USB
 identity. Do not source the shipped config and patch it — both fields need to change and
 `source` ordering gets fragile. Use the dedicated config
-`openocd/interface/luminary-icdi-ek-lm3s6965.cfg`.
+`tools/openocd/interface/luminary-icdi-ek-lm3s6965.cfg`.
 
 Compare the numbers directly rather than reading the prose:
 

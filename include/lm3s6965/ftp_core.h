@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "lm3s6965/ftp_storage.h"
+#include "lm3s6965/ftp_operation.h"
 #define FTP_CONTROL_CAPACITY 256u
 #define FTP_REPLY_SLOTS 8u
 #define FTP_REPLY_CAPACITY 128u
@@ -31,6 +32,13 @@ enum {
 bool ftp_core_init(const ftp_storage_t *storage);
 /* Read-only binding query, including before init; does not inspect storage. */
 bool ftp_core_is_initialized(void);
+/* Optional immutable binding, quiescent core/transport only, NULL unbinds.
+ * RAM binding remains mandatory. No callbacks on binding. Reset ends any
+ * active operation; accepted operations must retain durable/reset intent. */
+bool ftp_core_bind_operation(const ftp_operation_t *);
+/* Call once per foreground turn after Ethernet/timers, never from raw callbacks.
+ * WAIT does not refresh either 15 s idle or 60 s total transfer deadline. */
+void ftp_core_foreground(uint32_t now);
 /* Explicit boot/reset only: clear backend and protocol, retain binding.
  * Release PCBs/retries and all views first. Unbound: protocol reset only. */
 void ftp_core_reset(void);
@@ -55,6 +63,8 @@ ftp_direction_t ftp_core_direction(void);
 bool ftp_core_transfer_ready(void); /* 150 consumed AND data connected. */
 /* Oversize upload chunks fail the whole transfer before copying any bytes. */
 bool ftp_core_upload_chunk(const uint8_t *bytes, size_t length, uint32_t now);
+/* Async-capable exact-prefix input. RAM retains whole-chunk semantics. */
+ftp_input_t ftp_core_upload_span(const uint8_t *, size_t, uint32_t, size_t *);
 bool ftp_core_upload_eof(uint32_t now);
 bool ftp_core_eof_pending(void);
 /* Download pointer remains valid until teardown. Enqueued != acknowledged. */

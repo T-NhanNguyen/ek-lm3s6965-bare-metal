@@ -74,7 +74,7 @@ or target-side algorithms. Reset destroys the historical watermark.
    (
    set -eu
    capture=$(mktemp -d "$PWD/build/ftp-stack/capture.XXXXXX")
-   openocd -f openocd/board/ek-lm3s6965.cfg \
+   openocd -f tools/openocd/board/ek-lm3s6965.cfg \
      -c 'gdb_port disabled; tcl_port disabled; telnet_port disabled' \
      -c 'reset_config none' \
      -c 'lm3s6965.cpu configure -work-area-size 0; foreach event {gdb-attach gdb-detach examine-start examine-end reset-start reset-end reset-init} {lm3s6965.cpu configure -event $event {# no-op}}' \

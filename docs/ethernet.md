@@ -657,7 +657,7 @@ They do not prove physical FIFO behavior.
   printed/PDF pages 11–12. PDF page 18 shows Rev-D schematic sheet 1 of 3.
   That sheet has no separate printed book-page number.
   A schematic documents a circuit. It does not verify board operation.
-- **Host-model evidence:** `scripts/ethernet/platform/tests/ethernet_test.c` checks software against a
+- **Host-model evidence:** `tests/ethernet/platform/ethernet_test.c` checks software against a
   simulated register and FIFO model. Its assumptions are not independent
   hardware evidence. Passing host tests cannot prove the RX count convention.
 - **Physical evidence:** The initial run observed initialization and ten

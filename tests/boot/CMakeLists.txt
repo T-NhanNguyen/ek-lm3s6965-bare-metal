@@ -126,13 +126,41 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
         $<$<CONFIG:Release>:-Os>)
 endif()
 add_library(boot_runtime_watchdog STATIC ../../src/boot_runtime_watchdog.c)
-target_link_libraries(boot_runtime_watchdog PUBLIC boot_runtime boot_watchdog)
+target_link_libraries(boot_runtime_watchdog PUBLIC boot_runtime boot_handoff)
 target_compile_options(boot_runtime_watchdog PRIVATE
     -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
     -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
     target_compile_options(boot_runtime_watchdog PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
+endif()
+# HOST service API stays separate from the synchronous RAM FTP backend.
+add_library(boot_service STATIC ../../src/boot_service.c)
+target_link_libraries(boot_service PUBLIC boot_snapshot boot_lifecycle)
+target_compile_options(boot_service PRIVATE
+    -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+    -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+add_library(boot_receive STATIC ../../src/boot_receive.c)
+target_link_libraries(boot_receive PUBLIC boot_flash boot_lifecycle boot_verify)
+target_compile_options(boot_receive PRIVATE
+    -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+    -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+    target_compile_options(boot_receive PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
+        $<$<CONFIG:Release>:-Os>)
+endif()
+# Concrete FTP binding, separate from RAM storage and opt-in at startup.
+add_library(ftp_boot STATIC ../../src/ftp_boot.c ../../src/ftp_core.c)
+target_link_libraries(ftp_boot PUBLIC boot_receive boot_service)
+target_compile_options(ftp_boot PRIVATE
+    -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+    -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+# Transport fixture library only; behavioral entry point is Ethernet lwip suite.
+if(NOT CMAKE_CROSSCOMPILING)
+    add_library(ftp_boot_fixture STATIC
+        ../ethernet/ftp/ftp_boot_fixture.c)
+    target_link_libraries(ftp_boot_fixture PUBLIC ftp_boot boot_watchdog)
+    target_compile_options(ftp_boot_fixture PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 endif()
 # The same standalone project is the cross-build entry point for the archive.
 # Native test executables are deliberately not built for bare-metal ARM.
@@ -191,6 +219,22 @@ endforeach()
 add_test(NAME boot_allocator COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test_sbrk_linked.py --cc ${CMAKE_C_COMPILER}
     --sanitizers ${BOOT_SANITIZERS} ${SBRK_PROGRAMS})
+add_executable(test_receive test_receive.c)
+target_link_libraries(test_receive PRIVATE boot_receive boot_watchdog)
+target_compile_options(test_receive PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
+    -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+add_test(NAME boot_receive COMMAND test_receive)
+add_executable(test_service test_service.c flash_model.c)
+target_link_libraries(test_service PRIVATE boot_service)
+target_compile_options(test_service PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
+    -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+add_test(NAME boot_service COMMAND test_service)
+add_test(NAME boot_pc_workflow COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_workflow.py -v)
+set_tests_properties(boot_pc_workflow PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+add_test(NAME boot_pc_ftp COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_ftp_transport.py -v)
+set_tests_properties(boot_pc_ftp PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 add_executable(test_handoff test_handoff.c)
 target_link_libraries(test_handoff PRIVATE boot_handoff)
 target_compile_options(test_handoff PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
@@ -305,12 +349,24 @@ foreach(target IN ITEMS boot_verify_fault test_verify_fault)
         -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
         -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 endforeach()
+# Isolated receiver/verifier copy adds allocation failure, never production hooks.
+add_library(boot_receive_fault STATIC ../../src/boot_receive.c)
+target_link_libraries(boot_receive_fault PUBLIC boot_flash boot_lifecycle boot_verify_fault)
+add_executable(test_receive_fault test_receive.c)
+target_compile_definitions(test_receive_fault PRIVATE BOOT_RECEIVE_FAULT_INJECTION)
+target_link_libraries(test_receive_fault PRIVATE boot_receive_fault boot_watchdog)
+foreach(target IN ITEMS boot_receive_fault test_receive_fault)
+    target_compile_options(${target} PRIVATE -UNDEBUG
+        -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
+        -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+endforeach()
+add_test(NAME boot_receive_fault COMMAND test_receive_fault)
 if(BOOT_SANITIZERS)
-    foreach(target IN ITEMS boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
+    foreach(target IN ITEMS ftp_boot ftp_boot_fixture boot_receive_fault test_receive_fault boot_receive test_receive boot_service test_service boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
                             boot_crypto_fault boot_verify_fault test_verify_fault package_verify)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endforeach()
-    foreach(target IN ITEMS test_handoff test_watchdog test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
+    foreach(target IN ITEMS test_receive_fault test_receive test_service test_handoff test_watchdog test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()
 endif()
@@ -321,10 +377,18 @@ add_test(NAME boot_verify_fault COMMAND test_verify_fault)
 add_test(NAME boot_snapshot COMMAND test_snapshot)
 # Launch host tests reuse the established normal and fault-injected targets.
 add_subdirectory(../boot_launch boot_launch)
+# Fixture assertions remain live in Release without changing library NDEBUG.
+get_property(BOOT_HOST_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(target IN LISTS BOOT_HOST_TARGETS)
+    get_target_property(kind ${target} TYPE)
+    if(kind STREQUAL "EXECUTABLE")
+        target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C>:-UNDEBUG>)
+    endif()
+endforeach()
 # Apple ASan has no LeakSanitizer; crypto tests do allocate/free MPI storage.
 set(BOOT_ASAN_OPTIONS "halt_on_error=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     string(APPEND BOOT_ASAN_OPTIONS ":detect_leaks=1")
 endif()
-set_tests_properties(boot_handoff boot_watchdog boot_flash boot_snapshot boot_diag_publication boot_allocator boot_diag boot_reset_handler boot_reset boot_lifecycle boot_store boot_format boot_crypto boot_verify boot_verify_fault boot_package PROPERTIES ENVIRONMENT
+set_tests_properties(boot_receive_fault boot_receive boot_service boot_handoff boot_watchdog boot_flash boot_snapshot boot_diag_publication boot_allocator boot_diag boot_reset_handler boot_reset boot_lifecycle boot_store boot_format boot_crypto boot_verify boot_verify_fault boot_package PROPERTIES ENVIRONMENT
     "ASAN_OPTIONS=${BOOT_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1;PYTHONDONTWRITEBYTECODE=1")

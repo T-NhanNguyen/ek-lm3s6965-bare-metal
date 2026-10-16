@@ -38,14 +38,21 @@ for arg in "$@"; do
 done
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-BUILD=$(mktemp -d "${TMPDIR:-/tmp}/ethernet-tests.XXXXXX")
-trap 'rm -rf "$BUILD"' EXIT
+if [[ -n ${FTP_TEST_BUILD_DIR:-} ]]; then
+    BUILD=$FTP_TEST_BUILD_DIR
+    mkdir -p "$BUILD"
+else
+    BUILD=$(mktemp -d "${TMPDIR:-/tmp}/ethernet-tests.XXXXXX")
+    trap 'rm -rf "$BUILD"' EXIT
+fi
+# Compile-only is for worker validation; gate uses the default execution mode.
+run_binary() { if [[ ${FTP_TEST_BUILD_ONLY:-0} != 1 ]]; then "$@"; fi; }
 CC=${CC:-cc}
 NATIVE=(-std=c11 -g -O1 -Wall -Wextra -Werror)
 SANITIZERS=(-fsanitize=address,undefined -fno-omit-frame-pointer)
 STRICT=(-Wpedantic -Wconversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 INCLUDES=(-I"$ROOT/include")
-LWIP_INCLUDES=(-I"$ROOT/scripts/ethernet/platform/shims"
+LWIP_INCLUDES=(-I"$ROOT/tests/ethernet/platform/shims"
                -I"$ROOT/examples/ethernet-ftp" -I"$ROOT/third_party/lwip/src/include")
 LWIP_FLAGS=(-DLWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS=1)
 # Preserve the original platform-only flag override, without eval.
@@ -99,54 +106,74 @@ require_lwip() {
 }
 core() {
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${STRICT[@]}" "${INCLUDES[@]}" \
-        "$ROOT/scripts/ethernet/ftp/tests/ftp_core_test.c" \
+        "$ROOT/tests/ethernet/ftp/ftp_core_test.c" \
         "$ROOT/src/ftp_core.c" "$ROOT/src/ram_file.c" -o "$BUILD/core"
-    "$BUILD/core"
+    run_binary "$BUILD/core"
 }
 tcp() {
     require_lwip
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${LWIP_FLAGS[@]}" \
         "${LWIP_INCLUDES[@]}" "${INCLUDES[@]}" \
-        "$ROOT/scripts/ethernet/ftp/tests/ftp_tcp_test.c" \
+        "$ROOT/tests/ethernet/ftp/ftp_tcp_test.c" \
         "$ROOT/src/ftp_core.c" "$ROOT/src/ram_file.c" -o "$BUILD/tcp"
-    "$BUILD/tcp"
+    run_binary "$BUILD/tcp"
 }
 lwip() {
     require_lwip
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${LWIP_FLAGS[@]}" \
         "${LWIP_INCLUDES[@]}" "${INCLUDES[@]}" \
-        "$ROOT/scripts/ethernet/ftp/tests/ftp_lwip_test.c" \
+        "$ROOT/tests/ethernet/ftp/ftp_lwip_test.c" \
         "$ROOT/src/ftp_core.c" "$ROOT/src/ftp_tcp.c" "$ROOT/src/ram_file.c" \
         "${LWIP_SOURCES[@]}" -o "$BUILD/lwip"
-    ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}detect_leaks=0" "$BUILD/lwip"
+    ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}detect_leaks=0" run_binary "$BUILD/lwip"
+    # Second binary reuses ALL RAM regressions, then adds real boot components.
+    # No downloads: the existing boot dependency checks fail closed offline.
+    local boot_build=${FTP_BOOT_BUILD_DIR:-$BUILD/boot}
+    cmake -S "$ROOT/tests/boot" -B "$boot_build" -DCMAKE_BUILD_TYPE="${FTP_TEST_CONFIG:-Debug}"
+    cmake --build "$boot_build" --target ftp_boot_fixture --parallel 4
+    "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${LWIP_FLAGS[@]}" \
+        "${LWIP_INCLUDES[@]}" "${INCLUDES[@]}" -DFTP_BOOT_BINDING_TEST \
+        "$ROOT/tests/ethernet/ftp/ftp_lwip_test.c" \
+        "$ROOT/src/ftp_core.c" "$ROOT/src/ftp_tcp.c" "$ROOT/src/ram_file.c" \
+        "${LWIP_SOURCES[@]}" \
+        "$boot_build/libftp_boot_fixture.a" "$boot_build/libftp_boot.a" \
+        "$boot_build/libboot_receive.a" "$boot_build/libboot_service.a" \
+        "$boot_build/libboot_snapshot.a" "$boot_build/libboot_diag_publication.a" \
+        "$boot_build/libboot_diag.a" "$boot_build/libboot_flash.a" \
+        "$boot_build/libboot_watchdog.a" "$boot_build/libboot_store.a" \
+        "$boot_build/libboot_lifecycle.a" "$boot_build/libboot_verify.a" \
+        "$boot_build/libboot_crypto.a" -o "$BUILD/lwip-boot"
+    ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}detect_leaks=0" run_binary "$BUILD/lwip-boot"
 }
 file() {
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${STRICT[@]}" "${INCLUDES[@]}" \
-        "$ROOT/scripts/ethernet/file/tests/ram_file_test.c" "$ROOT/src/ram_file.c" \
+        "$ROOT/tests/ethernet/file/ram_file_test.c" "$ROOT/src/ram_file.c" \
         -o "$BUILD/file"
-    "$BUILD/file"
+    run_binary "$BUILD/file"
 }
 platform() {
     require_lwip
     "$CC" "${NATIVE[@]}" "${PLATFORM_FLAGS[@]}" "${LWIP_FLAGS[@]}" \
         "${LWIP_INCLUDES[@]}" -I"$ROOT/include/lm3s6965" \
-        "$ROOT/scripts/ethernet/platform/tests/ftp_platform_test.c" \
+        "$ROOT/tests/ethernet/platform/ftp_platform_test.c" \
         "${LWIP_SOURCES[@]}" -o "$BUILD/platform"
-    "$BUILD/platform"
+    run_binary "$BUILD/platform"
     "$CC" "${NATIVE[@]}" "${PLATFORM_FLAGS[@]}" \
-        "$ROOT/scripts/ethernet/platform/tests/ftp_sbrk_test.c" \
+        "$ROOT/tests/ethernet/platform/ftp_sbrk_test.c" \
         "$ROOT/examples/ethernet-ftp/ftp_sbrk.c" -o "$BUILD/heap"
-    "$BUILD/heap"
+    run_binary "$BUILD/heap"
     # CLI uses only help/list/invalid arguments; stack scanner uses synthetic
     # dumps. Neither Python fixture accesses hardware or recurses into all.
-    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
-        -s "$ROOT/scripts/ethernet/platform/tests" -p '*_test.py' -v
+    if [[ ${FTP_TEST_BUILD_ONLY:-0} != 1 ]]; then
+        PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+            -s "$ROOT/tests/ethernet/platform" -p '*_test.py' -v
+    fi
 }
 consumer() {
     require_lwip
     mkdir -p "$BUILD/bsp"
     cp -R "$ROOT/src" "$ROOT/include" "$BUILD/bsp/"
-    cp -R "$ROOT/scripts/ethernet/ftp/tests/ftp-library-consumer" "$BUILD/caller"
+    cp -R "$ROOT/tests/ethernet/ftp/ftp-library-consumer" "$BUILD/caller"
     cmake -S "$BUILD/caller" -B "$BUILD/consumer-build" \
         -DCMAKE_TOOLCHAIN_FILE="$ROOT/cmake/toolchain-lm3s6965.cmake" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -162,8 +189,8 @@ consumer() {
 }
 driver() {
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" -I"$ROOT/include/lm3s6965" \
-        "$ROOT/scripts/ethernet/platform/tests/ethernet_test.c" -o "$BUILD/driver"
-    "$BUILD/driver"
+        "$ROOT/tests/ethernet/platform/ethernet_test.c" -o "$BUILD/driver"
+    run_binary "$BUILD/driver"
 }
 raw() {
     # Never call this live runner without its explicit offline mode.
@@ -172,7 +199,7 @@ raw() {
 link() {
     # Tests mock capture_runner, Popen and pyftdi; the shell fixture uses --capture-file.
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
-        -s "$ROOT/scripts/ethernet/link/tests" -p '*_test.py' -v
+        -s "$ROOT/tests/ethernet/link" -p '*_test.py' -v
 }
 COMPLETED=' '
 for suite in "${SUITES[@]}"; do
@@ -180,6 +207,9 @@ for suite in "${SUITES[@]}"; do
     if [[ $COMPLETED == *" $suite "* ]]; then continue; fi
     COMPLETED+="$suite "
     printf '\n=== Offline suite: %s ===\n' "$suite"
+    if [[ ${FTP_TEST_BUILD_ONLY:-0} == 1 && ( $suite == raw || $suite == link ) ]]; then
+        printf '%s\n' 'compile-only supports compiled suites, not raw/link' >&2; exit 2
+    fi
     case "$suite" in
         core) core ;; tcp) tcp ;; lwip) lwip ;; file) file ;;
         platform) platform ;; consumer) consumer ;; driver) driver ;;

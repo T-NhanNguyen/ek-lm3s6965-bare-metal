@@ -15,6 +15,9 @@
 #include "lm3s6965/ftp_tcp.h"
 #include "lm3s6965/ftp_core.h"
 #include "lm3s6965/ram_file.h"
+#ifdef FTP_BOOT_BINDING_TEST
+#include "ftp_boot_fixture.h"
+#endif
 static ram_file_t fixture;
 static uint8_t fixture_a[4096], fixture_b[4096];
 
@@ -236,6 +239,193 @@ static void pools_empty(void)
     const unsigned pools[]={MEMP_PBUF_POOL,MEMP_PBUF,MEMP_TCP_PCB,MEMP_TCP_PCB_LISTEN,MEMP_TCP_SEG};
     for (unsigned i=0;i<sizeof pools/sizeof pools[0];++i) assert(lwip_stats.memp[pools[i]]->used==0);
 }
+#ifdef FTP_BOOT_BINDING_TEST
+/* Five bounded classes; each uses the production core, raw adapter and real
+ * signed verifier/controller/store fixtures through the in-memory peer. */
+static ftp_boot_t *boot_device(const ip4_addr_t *ip, bool trial, uint16_t port)
+{
+    ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty(); arp();
+    ftp_boot_t *b = ftp_boot_fixture_init(trial);
+    assert(ftp_core_bind_operation(ftp_boot_operation(b)));
+    assert(ftp_tcp_start(ip) == ERR_OK); login(port);
+    return b;
+}
+static void boot_send(const uint8_t *p, size_t n)
+{
+    packet(&data, TCP_ACK|TCP_PSH, p, n);
+    pump(600); /* bounded turns, not one unbounded flash drain in service */
+}
+static void boot_cases(const ip4_addr_t *ip)
+{
+    uint8_t package[BOOT_MANIFEST_BYTES + BOOT_PAYLOAD_MIN];
+    char confirmation[BOOT_CONFIRM_CAPACITY];
+    /* 1. Owned coherent status and both durable/idempotent confirmation. */
+    ftp_boot_t *b = boot_device(ip, true, 21001);
+    passive(true); data.ack = false; command("RETR boot-status\r\n"); pump(32);
+    assert(!data.fin && !strstr((char *)ctrl.bytes, "226 "));
+    assert(b->active == FTP_BOOT_STATUS && data.length == b->status_length);
+    assert(!memcmp(data.bytes, b->status, data.length));
+    command("STOR confirm\r\n"); expect("503 ");
+    data.ack = true; packet(&data, TCP_ACK, NULL, 0); pump(32);
+    expect("226 "); assert(data.fin && strstr((char *)data.bytes, "trial_state=trial\n"));
+    size_t n = ftp_boot_fixture_confirm(confirmation);
+    unsigned before = ftp_boot_fixture_commands();
+    /* Well-formed wrong identity: no confirmation and no physical writes. */
+    confirmation[n-2] = '8';
+    passive(true); command("STOR confirm\r\n"); clear_control();
+    boot_send((const uint8_t *)confirmation, n);
+    packet(&data, TCP_ACK|TCP_FIN, NULL, 0); pump(32);
+    expect("451 "); assert(!strstr((char *)ctrl.bytes, "226 "));
+    assert(ftp_boot_fixture_commands() == before && !b->reset_requested);
+    n = ftp_boot_fixture_confirm(confirmation);
+    for (unsigned duplicate = 0; duplicate < 2; ++duplicate) {
+        passive(true); command("STOR confirm\r\n"); expect("150 "); clear_control();
+        boot_send((const uint8_t *)confirmation, n);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+        packet(&data, TCP_ACK|TCP_FIN, NULL, 0); pump(32); expect("226 ");
+        unsigned after = ftp_boot_fixture_commands();
+        assert(duplicate ? after == before : after > before); before = after;
+    }
+    boot_store_snapshot_t s = ftp_boot_fixture_metadata();
+    assert(s.record.current_slot == BOOT_SLOT_A && s.record.candidate_slot == BOOT_SLOT_NONE);
+    assert(!b->reset_requested);
+    /* 2. Partial manifest prefix, full-word WAIT, refused chain with FIN.
+     * No TCP callbacks may perform boot IO; only foreground pumping does. */
+    b = boot_device(ip, false, 21002); n = ftp_boot_fixture_package(package);
+    passive(true); command("STOR firmware\r\n"); expect("150 "); clear_control();
+    before = ftp_boot_fixture_commands();
+    packet(&data, TCP_ACK|TCP_PSH, package, BOOT_MANIFEST_BYTES + 5);
+    packet(&data, TCP_ACK|TCP_PSH|TCP_FIN, package + BOOT_MANIFEST_BYTES + 5,
+           n - BOOT_MANIFEST_BYTES - 5);
+    assert(ftp_boot_fixture_commands() == before);
+    struct tcp_pcb *p = peer_pcb(&data); assert(p && p->refused_data);
+    /* lwIP tcp_receive charges payload + FIN sequence space. The FIN byte
+     * stays charged until tcp_process_refused_data accepts the marked chain;
+     * only payload prefixes are credited by the adapter's tcp_recved calls. */
+    assert(p->state == CLOSE_WAIT && (p->refused_data->flags & PBUF_FLAG_TCP_FIN));
+    assert(p->rcv_wnd == TCP_WND - n - 1u);
+    pump(1);
+    assert(b->config.receiver->manifest_used == BOOT_MANIFEST_BYTES);
+    assert(b->config.receiver->received == 0u && !b->eof);
+    assert(p->rcv_wnd == TCP_WND - (n - BOOT_MANIFEST_BYTES) - 1u);
+    pump(1); /* zero accepted WAIT: no credit and EOF not delivered early */
+    assert(p->rcv_wnd == TCP_WND - (n - BOOT_MANIFEST_BYTES) - 1u && !b->eof);
+    assert(!strstr((char *)ctrl.bytes, "226 ") && !b->reset_requested);
+    /* Conflicting control service cannot bypass receiver ownership. */
+    command("RETR boot-status\r\n"); expect("503 "); clear_control();
+    /* Cross the first-chain 4+1 payload boundary one turn at a time. While
+     * refused, FIN still costs one byte. Reoffering transfers ownership, not
+     * payload credit: only that FIN byte is restored by lwIP at the handoff. */
+    bool saw_word_prefix = false;
+    for (unsigned turns = 0; p->refused_data && turns < 256u; ++turns) {
+        pump(1);
+        size_t consumed = BOOT_MANIFEST_BYTES + b->config.receiver->received;
+        assert(p->rcv_wnd == TCP_WND - (n - consumed) - !!p->refused_data);
+        if (b->config.receiver->received == 4u) saw_word_prefix = true;
+        assert(!b->eof && !b->reset_requested && !data.fin);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+    }
+    assert(saw_word_prefix && !p->refused_data);
+    assert(b->config.receiver->received == 5u);
+    assert(p->rcv_wnd == TCP_WND - (n - BOOT_MANIFEST_BYTES - 5u));
+    /* FIN is now delivered to the adapter, but the retained second chain
+     * must be credited exactly once before the backend can observe EOF. */
+    for (unsigned turns = 0; !b->eof && turns < 256u; ++turns) {
+        pump(1);
+        size_t consumed = BOOT_MANIFEST_BYTES + b->config.receiver->received;
+        assert(!p->refused_data && p->rcv_wnd == TCP_WND - (n - consumed));
+        assert(!b->reset_requested && !data.fin);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+    }
+    assert(b->eof && b->config.receiver->eof);
+    assert(b->config.receiver->received == n - BOOT_MANIFEST_BYTES);
+    assert(p->rcv_wnd == TCP_WND);
+    pump(600); expect("226 "); assert(data.fin && b->reset_requested);
+    s = ftp_boot_fixture_metadata();
+    assert(s.record.sequence == 22 && s.record.candidate_slot == BOOT_SLOT_B);
+    assert((s.record.images[1].accounting & 3u) == BOOT_STATE_READY);
+    before = ftp_boot_fixture_commands();
+    command("ABOR\r\n"); command("QUIT\r\n");
+    ftp_tcp_link_down(); assert(b->reset_requested && ftp_boot_fixture_commands() == before);
+    /* 3. Invalid package and flash operational failure never send 226. */
+    for (unsigned fault = 0; fault < 2; ++fault) {
+        b = boot_device(ip, false, (uint16_t)(21003 + fault));
+        n = ftp_boot_fixture_package(package);
+        if (!fault) package[0] ^= 1;
+        passive(true); command("STOR firmware\r\n"); clear_control();
+        if (fault) ftp_boot_fixture_fail();
+        boot_send(package, n);
+        assert(!strstr((char *)ctrl.bytes, "226 ")); expect("451 ");
+        assert(!b->reset_requested && b->active == FTP_BOOT_NONE);
+        if (fault) {
+            assert(b->quarantine);
+            before = ftp_boot_fixture_commands();
+            passive(true); command("RETR boot-status\r\n"); expect("451 ");
+            passive(true); command("STOR confirm\r\n"); expect("451 ");
+            assert(b->quarantine && ftp_boot_fixture_commands() == before);
+        }
+    }
+    /* Exact EOF and trailing packages cannot become READY. */
+    for (unsigned length_error = 0; length_error < 2; ++length_error) {
+        b = boot_device(ip, false, (uint16_t)(21005 + length_error));
+        n = ftp_boot_fixture_package(package);
+        passive(true); command("STOR firmware\r\n"); clear_control();
+        boot_send(package, n - (length_error ? 0u : 1u));
+        if (length_error) boot_send(package, 1);
+        else { packet(&data, TCP_ACK|TCP_FIN, NULL, 0); pump(32); }
+        expect("451 "); assert(!strstr((char *)ctrl.bytes, "226 ") && !b->reset_requested);
+    }
+    /* 4. Cancel prefixes, WAIT timeout, control/data errors and linkdown.
+     * Each is a fresh device; one-shot receiver cannot be silently revived. */
+    for (unsigned cancel = 0; cancel < 7; ++cancel) {
+        b = boot_device(ip, false, (uint16_t)(21010 + cancel));
+        n = ftp_boot_fixture_package(package);
+        passive(true); command("STOR firmware\r\n"); clear_control();
+        packet(&data, TCP_ACK|TCP_PSH, package, BOOT_MANIFEST_BYTES);
+        pump((cancel & 1u) ? 120u : 1u); assert(!b->reset_requested);
+        if (cancel == 0) command("ABOR\r\n");
+        if (cancel == 1) command("QUIT\r\n");
+        if (cancel == 2) { packet(&ctrl, TCP_ACK|TCP_FIN, NULL, 0); pump(4); }
+        if (cancel == 3) { packet(&ctrl, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
+        if (cancel == 4) { packet(&data, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
+        if (cancel == 5) ftp_tcp_link_down();
+        if (cancel == 6) advance(15000);
+        assert(!b->reset_requested && b->active == FTP_BOOT_NONE);
+        assert(b->config.receiver->phase == BOOT_RECEIVE_TERMINAL);
+        s = ftp_boot_fixture_metadata();
+        assert(s.record.sequence == ((cancel & 1u) || cancel == 6 ? 21u : 20u));
+        assert(s.record.current_slot == BOOT_SLOT_A && s.record.candidate_slot == BOOT_SLOT_NONE);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+        before = ftp_boot_fixture_commands(); pump(4);
+        assert(ftp_boot_fixture_commands() == before);
+    }
+    /* 5. Durable acceptance survives lost reply and failed FIN allocation.
+     * No claim of reset, trial execution, or rollback from transport loss. */
+    for (unsigned terminal = 0; terminal < 4; ++terminal) {
+        b = boot_device(ip, false, (uint16_t)(21020 + terminal));
+        n = ftp_boot_fixture_package(package);
+        passive(true); command("STOR firmware\r\n"); clear_control(); boot_send(package, n);
+        packet(&data, TCP_ACK|TCP_FIN, NULL, 0);
+        void *held[MEMP_NUM_TCP_SEG]; unsigned hn = 0;
+        while (hn < MEMP_NUM_TCP_SEG && (held[hn] = memp_malloc(MEMP_TCP_SEG))) ++hn;
+        pump(100); assert(b->reset_requested && !data.fin);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+        before = ftp_boot_fixture_commands();
+        if (terminal == 0) { packet(&ctrl, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
+        if (terminal == 1) command("ABOR\r\n");
+        if (terminal == 2) advance(5000);
+        if (terminal == 3) ftp_tcp_link_down();
+        assert(b->reset_requested && b->active == FTP_BOOT_NONE);
+        assert(ftp_boot_fixture_commands() == before);
+        for (unsigned i = 0; i < hn; ++i) memp_free(MEMP_TCP_SEG, held[i]);
+        pump(4); assert(!strstr((char *)ctrl.bytes, "226 "));
+        if (terminal == 1) expect("225 Operation already accepted.");
+    }
+    ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty();
+    assert(ftp_core_bind_operation(NULL));
+    puts("FTP boot binding: five bounded real-component transport classes passed");
+}
+#endif
 int main(void)
 {
     assert(LWIP_VERSION_MAJOR==2 && LWIP_VERSION_MINOR==2 && LWIP_VERSION_REVISION==1);
@@ -304,6 +494,9 @@ int main(void)
     for (struct tcp_pcb *p=tcp_active_pcbs;p;p=p->next) assert(p->remote_port!=ctrl.port);
     assert(!ctrl.fin && ctrl.length==0);
     ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty();
+#ifdef FTP_BOOT_BINDING_TEST
+    boot_cases(&ip);
+#endif
     puts("FTP real lwIP: ARP/checksums, fragmented/coalesced login, EPSV/PASV, binary 0/17/4096, RST/overflow preservation, ACK lag/retransmission, output/reply backpressure, reconnect/link teardown/pools passed");
     return 0;
 }

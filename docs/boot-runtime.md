@@ -6,7 +6,10 @@ It does not execute an image, bind MMIO, establish/service a watchdog, impose a
 candidate deadline, or implement production startup/handoff/FTP integration.
 Use the optional [runtime watchdog bridge](boot-runtime-watchdog.md) to adopt an
 already configured watchdog and service actual verifier milestones across this
-unchanged raw API; all unmeasured service gaps and physical limits remain.
+unchanged raw API. Its `boot_runtime_watchdog_launch` entry also composes the
+successful selection with final-handoff intent on the same watchdog object.
+Use that entry instead of chaining a decision run and a handoff call. All
+unmeasured service gaps and physical limits remain.
 
 ## Caller lifecycle
 

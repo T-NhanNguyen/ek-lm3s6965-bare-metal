@@ -30,6 +30,8 @@ static boot_flash_result_t enter(boot_flash_t *f)
 
 static boot_flash_result_t leave(boot_flash_t *f, boot_flash_result_t result)
 {
+    if (f->blocked && f->blocked_result == BOOT_FLASH_OK && result != BOOT_FLASH_OK)
+        f->blocked_result = result;
     atomic_flag_clear_explicit(&f->entered, memory_order_release);
     return result;
 }
@@ -74,6 +76,7 @@ boot_flash_result_t boot_flash_init(boot_flash_t *f, const boot_flash_io_t *io,
     f->mhz = mhz;
     f->polls = polls;
     f->blocked = 0u;
+    f->blocked_result = BOOT_FLASH_OK;
     f->entered = (atomic_flag)ATOMIC_FLAG_INIT;
     return BOOT_FLASH_OK;
 }
@@ -85,7 +88,10 @@ boot_flash_result_t boot_flash_recover(boot_flash_t *f)
     f->blocked = 1u;
     result = idle(f, f->polls);
     if (result == BOOT_FLASH_OK) result = clear_status(f);
-    if (result == BOOT_FLASH_OK) f->blocked = 0u;
+    if (result == BOOT_FLASH_OK) {
+        f->blocked = 0u;
+        f->blocked_result = BOOT_FLASH_OK;
+    }
     return leave(f, result);
 }
 

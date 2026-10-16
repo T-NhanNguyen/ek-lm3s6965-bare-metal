@@ -172,17 +172,22 @@ boot_watchdog_result_t boot_watchdog_service(boot_watchdog_t *w,
     return leave(w, boot_watchdog_service_held(w, owner, epoch));
 }
 
+boot_watchdog_result_t boot_watchdog_transfer_held(boot_watchdog_t *w, uint32_t epoch)
+{
+    boot_watchdog_result_t result = ready(w, BOOT_WATCHDOG_BOOT, epoch);
+    if (result != BOOT_WATCHDOG_OK) return result;
+    if (w->epoch == UINT32_MAX) return quarantine_held(w, BOOT_WATCHDOG_STATE);
+    w->owner = BOOT_WATCHDOG_APPLICATION;
+    w->evidence = 0u;
+    ++w->epoch;
+    return BOOT_WATCHDOG_OK;
+}
+
 boot_watchdog_result_t boot_watchdog_transfer(boot_watchdog_t *w, uint32_t epoch)
 {
     boot_watchdog_result_t result = enter(w);
     if (result != BOOT_WATCHDOG_OK) return result;
-    result = ready(w, BOOT_WATCHDOG_BOOT, epoch);
-    if (result != BOOT_WATCHDOG_OK) return leave(w, result);
-    if (w->epoch == UINT32_MAX) return stop(w, BOOT_WATCHDOG_STATE);
-    w->owner = BOOT_WATCHDOG_APPLICATION;
-    w->evidence = 0u;
-    ++w->epoch;
-    return leave(w, BOOT_WATCHDOG_OK);
+    return leave(w, boot_watchdog_transfer_held(w, epoch));
 }
 
 boot_watchdog_result_t boot_watchdog_report_held(boot_watchdog_t *w,

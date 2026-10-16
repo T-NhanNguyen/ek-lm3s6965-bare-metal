@@ -1,4 +1,6 @@
 #include "lm3s6965/boot_handoff.h"
+#include "boot_handoff_internal.h"
+#include "boot_watchdog_internal.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -58,11 +60,12 @@ static boot_handoff_result_t fault(boot_handoff_t *h)
     /* STE: an unsuccessful callback may already have acted. No continuation,
      * exclusion release or rollback is safe. Quarantine has no recovery API. */
     h->blocked = 1u;
-    return leave(h, BOOT_HANDOFF_IO);
+    return BOOT_HANDOFF_IO;
 }
 
-boot_handoff_result_t boot_handoff_run(boot_handoff_t *h, boot_watchdog_t *w,
-    const boot_handoff_request_t *request, boot_handoff_intent_t *out)
+static boot_handoff_result_t run(boot_handoff_t *h, boot_watchdog_t *w,
+    const boot_handoff_request_t *request, boot_handoff_intent_t *out,
+    unsigned held)
 {
     static const boot_handoff_operation_t order[] = {
         BOOT_HANDOFF_EXCLUDE, BOOT_HANDOFF_STOP_SYSTICK,
@@ -78,32 +81,48 @@ boot_handoff_result_t boot_handoff_run(boot_handoff_t *h, boot_watchdog_t *w,
     size_t i;
     if (h == NULL || w == NULL || request == NULL || out == NULL)
         return BOOT_HANDOFF_ARGUMENT;
-    if (atomic_flag_test_and_set_explicit(&h->entered, memory_order_acquire))
-        return BOOT_HANDOFF_BUSY;
-    if (h->blocked != 0u) return leave(h, BOOT_HANDOFF_BLOCKED);
-    if (h->finished != 0u) return leave(h, BOOT_HANDOFF_STATE);
+    if (h->blocked != 0u) return BOOT_HANDOFF_BLOCKED;
+    if (h->finished != 0u) return BOOT_HANDOFF_STATE;
     snapshot = *request;
     result = boot_handoff_admit(&snapshot, &intent);
-    if (result != BOOT_HANDOFF_OK) return leave(h, result);
-    /* Brief guard checks idle ownership. It cannot replace the caller's whole
-     * transaction exclusion; transfer itself acquires the watchdog guard. */
-    if (atomic_flag_test_and_set_explicit(&w->entered, memory_order_acquire))
-        return leave(h, BOOT_HANDOFF_BUSY);
+    if (result != BOOT_HANDOFF_OK) return result;
+    /* Standalone entry briefly checks idle ownership. Protected launch already
+     * holds both guards. Neither path excludes external hardware access. */
+    if (held == 0u &&
+        atomic_flag_test_and_set_explicit(&w->entered, memory_order_acquire))
+        return BOOT_HANDOFF_BUSY;
     result = w->configured == 0u || w->blocked != 0u ||
         w->owner != BOOT_WATCHDOG_BOOT || w->epoch != snapshot.watchdog_epoch ||
         w->epoch == UINT32_MAX ? BOOT_HANDOFF_STATE : BOOT_HANDOFF_OK;
-    atomic_flag_clear_explicit(&w->entered, memory_order_release);
-    if (result != BOOT_HANDOFF_OK) return leave(h, result);
+    if (held == 0u) atomic_flag_clear_explicit(&w->entered, memory_order_release);
+    if (result != BOOT_HANDOFF_OK) return result;
     for (i = 0u; i < sizeof order / sizeof order[0]; ++i)
     {
         uint32_t value = order[i] == BOOT_HANDOFF_SET_VTOR ? intent.vtor : 0u;
         if (h->io.operation(h->io.context, order[i], value) != 0) return fault(h);
     }
     /* One-way ownership is not rolled back even if terminal intent is ambiguous. */
-    if (boot_watchdog_transfer(w, snapshot.watchdog_epoch) != BOOT_WATCHDOG_OK)
+    if ((held != 0u ? boot_watchdog_transfer_held(w, snapshot.watchdog_epoch) :
+         boot_watchdog_transfer(w, snapshot.watchdog_epoch)) != BOOT_WATCHDOG_OK)
         return fault(h);
     if (h->io.terminal_intent(h->io.context, &intent) != 0) return fault(h);
     h->finished = 1u;
     *out = intent;
-    return leave(h, BOOT_HANDOFF_OK);
+    return BOOT_HANDOFF_OK;
+}
+
+boot_handoff_result_t boot_handoff_run_held(boot_handoff_t *h, boot_watchdog_t *w,
+    const boot_handoff_request_t *request, boot_handoff_intent_t *out)
+{
+    return run(h, w, request, out, 1u);
+}
+
+boot_handoff_result_t boot_handoff_run(boot_handoff_t *h, boot_watchdog_t *w,
+    const boot_handoff_request_t *request, boot_handoff_intent_t *out)
+{
+    if (h == NULL || w == NULL || request == NULL || out == NULL)
+        return BOOT_HANDOFF_ARGUMENT;
+    if (atomic_flag_test_and_set_explicit(&h->entered, memory_order_acquire))
+        return BOOT_HANDOFF_BUSY;
+    return leave(h, run(h, w, request, out, 0u));
 }

@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 
 MODULE_PATH = (
-    Path(__file__).resolve().parents[1] / "ethernet_link_test.py"
+    Path(__file__).resolve().parents[3] / "scripts/ethernet/link/ethernet_link_test.py"
 )
 SPEC = importlib.util.spec_from_file_location("ethernet_link", MODULE_PATH)
 LINK = importlib.util.module_from_spec(SPEC)

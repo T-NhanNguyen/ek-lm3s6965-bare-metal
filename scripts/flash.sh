@@ -11,7 +11,7 @@ set -euo pipefail
 
 SCRIPT_DIRECTORY=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPOSITORY_ROOT=$(dirname "$SCRIPT_DIRECTORY")
-BOARD_CONFIG="${REPOSITORY_ROOT}/openocd/board/ek-lm3s6965.cfg"
+BOARD_CONFIG="${REPOSITORY_ROOT}/tools/openocd/board/ek-lm3s6965.cfg"
 FIRMWARE_ELF="${1:-${REPOSITORY_ROOT}/build/examples/baremetal/lm3s6965_firmware}"
 
 if [[ ! -f "$FIRMWARE_ELF" ]]; then

@@ -58,12 +58,12 @@ SHARED=("${SCRIPT_DIRECTORY}/host/ethernet_raw_capture.c"
         "${ROOT}/examples/ethernet-raw/raw_protocol.c")
 if [[ ${MODE} == --self-test ]]; then
     FLAGS+=(-g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined)
-    "${CC}" "${FLAGS[@]}" "${SCRIPT_DIRECTORY}/tests/ethernet_raw_capture_test.c" \
+    "${CC}" "${FLAGS[@]}" "${ROOT}/tests/ethernet/raw/ethernet_raw_capture_test.c" \
         "${SHARED[@]}" -o "${BUILD}/ethernet_raw_capture_test"
-    "${CC}" "${FLAGS[@]}" "${SCRIPT_DIRECTORY}/tests/raw_protocol_test.c" \
+    "${CC}" "${FLAGS[@]}" "${ROOT}/tests/ethernet/raw/raw_protocol_test.c" \
         "${ROOT}/examples/ethernet-raw/raw_protocol.c" \
         -o "${BUILD}/raw_protocol_test"
-    "${CC}" "${FLAGS[@]}" "${SCRIPT_DIRECTORY}/tests/ethernet_raw_privilege_test.c" \
+    "${CC}" "${FLAGS[@]}" "${ROOT}/tests/ethernet/raw/ethernet_raw_privilege_test.c" \
         -o "${BUILD}/ethernet_raw_privilege_test"
     "${BUILD}/ethernet_raw_privilege_test"
     "${BUILD}/ethernet_raw_capture_test"

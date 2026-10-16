@@ -50,6 +50,15 @@ typedef struct
     boot_select_images_t *images;
     boot_launch_decision_t *out;
     boot_launch_decision_t sentinel;
+    boot_handoff_t *handoff;
+    boot_handoff_context_t *observed;
+    boot_runtime_watchdog_launch_t *launch_out;
+    boot_runtime_watchdog_launch_t launch_sentinel;
+    unsigned h_calls, h_cut, h_after, h_effects, terminal_recorded;
+    unsigned h_feeds, h_wdt_calls, h_verification;
+    uint32_t h_epoch, h_vtor;
+    size_t h_flash_calls;
+    boot_handoff_operation_t h_trace[11];
     flash_model_t flash;
     boot_store_adapter_t inner;
     uint8_t payload[2][BOOT_PAYLOAD_MAX];
@@ -71,12 +80,19 @@ typedef struct
     boot_store_adapter_t store;
     boot_select_images_t images;
     boot_launch_decision_t out;
+    boot_handoff_t handoff;
+    boot_handoff_context_t observed;
+    boot_runtime_watchdog_launch_t launch_out;
     boot_metadata_t original;
 } fixture_t;
 
 static size_t payload_read(void *, uint32_t, uint8_t *, size_t);
 static boot_runtime_watchdog_result_t run(context_t *c)
 {
+    if (c->launch_out != NULL)
+        return boot_runtime_watchdog_launch(c->bridge, c->w, c->handoff,
+            c->observed, c->registers, c->store, c->images, payload_read, c,
+            c->launch_out);
     return boot_runtime_watchdog_run(c->bridge, c->w, c->registers, c->store,
         c->images, payload_read, c, c->out);
 }
@@ -85,6 +101,15 @@ static void boundary(context_t *c)
     if (!c->active) return;
     CHECK(memcmp(c->out, &c->sentinel, sizeof *c->out) == 0);
     CHECK(c->bridge->consumed == 1u && c->bridge->runtime.consumed == 1u);
+    if (c->launch_out != NULL)
+    {
+        boot_handoff_request_t request = {0};
+        boot_handoff_intent_t intent;
+        CHECK(memcmp(c->launch_out, &c->launch_sentinel, sizeof *c->launch_out) == 0);
+        CHECK(boot_handoff_run(c->handoff, c->w, &request, &intent) == BOOT_HANDOFF_BUSY);
+        CHECK(boot_runtime_watchdog_run(c->bridge, c->w, c->registers, c->store,
+            c->images, payload_read, c, c->out).status == BOOT_RUNTIME_WATCHDOG_BUSY);
+    }
     CHECK(run(c).status == BOOT_RUNTIME_WATCHDOG_BUSY);
     CHECK(boot_watchdog_service(c->w, BOOT_WATCHDOG_BOOT, c->w->epoch) == BOOT_WATCHDOG_BUSY);
     CHECK(boot_watchdog_boot_report(c->w, c->w->epoch, c->w->verification + 1u,
@@ -216,6 +241,68 @@ static int wdt_write(void *p, uint32_t address, uint32_t value)
     }
     return wdt_fail(c) ? -1 : 0;
 }
+static void handoff_boundary(context_t *c)
+{
+    boundary(c);
+    if (c->h_calls == 0u)
+    {
+        c->h_feeds = c->feeds; c->h_wdt_calls = c->calls;
+        c->h_flash_calls = c->flash.calls;
+        c->h_epoch = c->w->epoch; c->h_verification = c->w->verification;
+    }
+    CHECK(c->feeds == c->h_feeds && c->calls == c->h_wdt_calls);
+    CHECK(c->flash.calls == c->h_flash_calls);
+    CHECK(c->w->verification == c->h_verification && c->w->evidence == 0u);
+    ++c->h_calls;
+}
+static int handoff_operation(void *p, boot_handoff_operation_t op, uint32_t value)
+{
+    static const boot_handoff_operation_t order[11] = {
+        BOOT_HANDOFF_EXCLUDE, BOOT_HANDOFF_STOP_SYSTICK,
+        BOOT_HANDOFF_DISABLE_BANK0, BOOT_HANDOFF_DISABLE_BANK1,
+        BOOT_HANDOFF_QUIESCE_SOURCES, BOOT_HANDOFF_CLEAR_CORE_PENDING,
+        BOOT_HANDOFF_CLEAR_BANK0_PENDING, BOOT_HANDOFF_CLEAR_BANK1_PENDING,
+        BOOT_HANDOFF_BARRIER_BEFORE_VTOR, BOOT_HANDOFF_SET_VTOR,
+        BOOT_HANDOFF_BARRIER_AFTER_VTOR
+    };
+    context_t *c = p;
+    handoff_boundary(c);
+    CHECK(c->h_calls <= 11u && op == order[c->h_calls - 1u]);
+    CHECK(value == (op == BOOT_HANDOFF_SET_VTOR ? c->h_vtor : 0u));
+    CHECK(c->w->owner == BOOT_WATCHDOG_BOOT && c->w->epoch == c->h_epoch);
+    c->h_trace[c->h_calls - 1u] = op;
+    if (c->h_calls == c->h_cut && !c->h_after) return -1;
+    ++c->h_effects;
+    return c->h_calls == c->h_cut ? -1 : 0;
+}
+static int terminal_intent(void *p, const boot_handoff_intent_t *intent)
+{
+    context_t *c = p;
+    handoff_boundary(c);
+    CHECK(c->h_calls == 12u && c->w->owner == BOOT_WATCHDOG_APPLICATION);
+    CHECK(c->w->epoch == c->h_epoch + 1u);
+    CHECK(intent->application_epoch == c->w->epoch);
+    CHECK(intent->msp == BOOT_INITIAL_MSP && intent->control == 0u);
+    CHECK(intent->primask == 0u && intent->basepri == 0u && intent->faultmask == 0u);
+    CHECK(intent->vtor == c->h_vtor);
+    CHECK(intent->reset_vector == intent->vtor + 9u);
+    if (c->h_calls == c->h_cut && !c->h_after) return -1;
+    c->terminal_recorded = 1u; ++c->h_effects;
+    return c->h_calls == c->h_cut ? -1 : 0;
+}
+static void enable_launch(fixture_t *f)
+{
+    boot_handoff_io_t io = {&f->c, handoff_operation, terminal_intent};
+    uint32_t slot = f->original.candidate_slot == BOOT_SLOT_NONE ?
+        f->original.current_slot : f->original.candidate_slot;
+    f->c.h_vtor = slot == BOOT_SLOT_A ? BOOT_SLOT_A_BASE : BOOT_SLOT_B_BASE;
+    f->c.handoff = &f->handoff; f->c.observed = &f->observed;
+    f->c.launch_out = &f->launch_out;
+    memset(&f->c.launch_sentinel, 0xa6, sizeof f->c.launch_sentinel);
+    f->launch_out = f->c.launch_sentinel;
+    f->observed = (boot_handoff_context_t){0u, 2u, 1u, 0xe0u, 1u};
+    CHECK(boot_handoff_init(&f->handoff, &io) == BOOT_HANDOFF_OK);
+}
 static void put32(uint8_t *p, uint32_t value)
 {
     for (unsigned i = 0u; i < 4u; ++i) p[i] = (uint8_t)(value >> (8u * i));
@@ -276,10 +363,20 @@ static void duplicate(fixture_t *f)
     unsigned calls = f->c.calls, regs = f->c.reg_calls, feeds = f->c.feeds;
     size_t flash = f->c.flash.calls;
     boot_launch_decision_t before = f->out;
+    boot_runtime_watchdog_launch_t launch_before = f->launch_out;
+    unsigned h_calls = f->c.h_calls;
     boot_runtime_watchdog_result_t r = run(&f->c);
     CHECK(r.status == BOOT_RUNTIME_WATCHDOG_CONSUMED && r.valid == 0u);
     CHECK(f->c.calls == calls && f->c.reg_calls == regs && f->c.feeds == feeds);
     CHECK(f->c.flash.calls == flash && memcmp(&before, &f->out, sizeof before) == 0);
+    CHECK(f->c.h_calls == h_calls);
+    if (f->c.launch_out != NULL)
+    {
+        CHECK(memcmp(&launch_before, &f->launch_out, sizeof launch_before) == 0);
+        CHECK(boot_runtime_watchdog_run(f->c.bridge, &f->w, &f->registers,
+            &f->store, &f->images, payload_read, &f->c, &f->out).status ==
+            BOOT_RUNTIME_WATCHDOG_CONSUMED);
+    }
     if (f->w.blocked != 0u)
     {
         CHECK(boot_watchdog_boot_report(&f->w, f->w.epoch, 1u,
@@ -756,8 +853,242 @@ static void snapshots_and_aliases(void)
         duplicate(&f);
     }
 }
+static void launch_success(void)
+{
+    for (unsigned slot = 0u; slot < 2u; ++slot)
+    for (unsigned page = 0u; page < 2u; ++page)
+    for (unsigned role = 0u; role < 6u; ++role)
+    for (unsigned mode = 0u; mode < 2u; ++mode)
+    {
+        fixture_t f;
+        boot_runtime_watchdog_result_t r;
+        unsigned kind = role < 4u ? role : role == 4u ? 1u : 3u;
+        unsigned selected = role == 1u || role == 2u || role == 3u || role == 5u ? 1u-slot : slot;
+        unsigned streams = role == 2u || role == 4u ? 2u : 1u;
+        unsigned chunks, feeds;
+        boot_runtime_watchdog_launch_t saved;
+        prepare(&f, slot, page, kind, mode); enable_launch(&f);
+        f.c.h_vtor = selected == BOOT_SLOT_A ? BOOT_SLOT_A_BASE : BOOT_SLOT_B_BASE;
+        if (role == 2u) f.c.payload[slot][20] ^= 1u;
+        if (role == 4u) f.c.payload[1u-slot][20] ^= 1u;
+        if (role == 5u) f.c.captured = 8u;
+        CHECK(boot_watchdog_boot_report(&f.w, f.w.epoch, 73u,
+            BOOT_VERIFY_MANIFEST_BEGIN, 0u, BOOT_PAYLOAD_MIN) == BOOT_WATCHDOG_OK);
+        r = run(&f.c);
+        chunks = (f.c.length[selected] + 255u) / 256u;
+        feeds = streams * (chunks + 1u);
+        CHECK(r.status == BOOT_RUNTIME_WATCHDOG_OK && r.valid == 15u);
+        CHECK(r.runtime.status == BOOT_RUNTIME_OK && r.handoff == BOOT_HANDOFF_OK);
+        CHECK(f.c.h_calls == 12u && f.c.h_effects == 12u && f.c.terminal_recorded == 1u);
+        CHECK(f.w.owner == BOOT_WATCHDOG_APPLICATION && f.w.epoch == feeds + 2u);
+        CHECK(f.w.verification == 73u + streams && f.w.blocked == 0u && f.w.evidence == 0u);
+        CHECK(f.handoff.finished == 1u && f.handoff.blocked == 0u);
+        CHECK(f.c.feeds == feeds && f.c.calls == feeds * 9u);
+        CHECK(f.launch_out.decision.image.manifest.slot == selected);
+        CHECK(f.launch_out.intent.application_epoch == f.w.epoch);
+        CHECK(f.launch_out.intent.vtor == f.c.h_vtor);
+        CHECK(f.launch_out.intent.reset_vector == f.c.h_vtor + 9u);
+        CHECK(f.c.flash.erases == (role == 1u || role == 2u || role == 5u ? 1u : 0u));
+        CHECK(f.c.flash.writes == f.c.flash.erases * 42u);
+        CHECK(f.launch_out.decision.snapshot.record.sequence == 100u + f.c.flash.erases);
+        saved = f.launch_out;
+        memset(&f.images, 0, sizeof f.images);
+        memset(f.c.payload, 0, sizeof f.c.payload);
+        memset(f.c.flash.bytes, 0, sizeof f.c.flash.bytes);
+        CHECK(memcmp(&saved, &f.launch_out, sizeof saved) == 0);
+        duplicate(&f);
+    }
+}
+static void launch_handoff_faults(void)
+{
+    for (unsigned slot = 0u; slot < 2u; ++slot)
+    for (unsigned page = 0u; page < 2u; ++page)
+    for (unsigned cut = 1u; cut <= 12u; ++cut)
+    for (unsigned after = 0u; after < 2u; ++after)
+    {
+        fixture_t f;
+        boot_runtime_watchdog_result_t r;
+        boot_store_snapshot_t authority;
+        prepare(&f, slot, page, 1u, 0u); enable_launch(&f);
+        f.c.h_cut = cut; f.c.h_after = after;
+        r = run(&f.c);
+        CHECK(r.status == BOOT_RUNTIME_WATCHDOG_HANDOFF_FAILED && r.handoff == BOOT_HANDOFF_IO);
+        CHECK(r.runtime.status == BOOT_RUNTIME_OK && r.valid == 15u);
+        CHECK(f.c.h_calls == cut && f.c.h_effects == cut - 1u + after);
+        CHECK(f.c.terminal_recorded == (cut == 12u ? after : 0u));
+        CHECK(f.w.owner == (cut == 12u ? BOOT_WATCHDOG_APPLICATION : BOOT_WATCHDOG_BOOT));
+        CHECK(f.w.epoch == (cut == 12u ? 4u : 3u) && f.w.verification == 1u);
+        CHECK(f.w.blocked == 1u && f.w.evidence == 0u);
+        CHECK(f.handoff.blocked == 1u && f.handoff.finished == 0u);
+        CHECK(f.c.feeds == 2u && f.c.calls == 18u && f.c.reg_calls == 3u);
+        CHECK(f.c.flash.erases == 1u && f.c.flash.writes == 42u);
+        CHECK(memcmp(&f.launch_out, &f.c.launch_sentinel, sizeof f.launch_out) == 0);
+        /* The durable TRIAL remains authoritative. Handoff failure cannot undo it. */
+        CHECK(boot_store_load(&f.c.inner, &authority) == BOOT_STORE_OK);
+        CHECK(authority.record.sequence == 101u && authority.record.images[1u-slot].accounting == 2u);
+        duplicate(&f);
+        {
+            boot_handoff_request_t request = {0};
+            boot_handoff_intent_t intent;
+            CHECK(boot_handoff_run(&f.handoff, &f.w, &request, &intent) == BOOT_HANDOFF_BLOCKED);
+            CHECK(f.c.h_calls == cut);
+        }
+    }
+}
+static void launch_stops(void)
+{
+    for (unsigned error = 0u; error < 9u; ++error)
+    {
+        fixture_t f;
+        boot_runtime_watchdog_result_t r;
+        prepare(&f, 0u, 0u, 0u, 0u); enable_launch(&f);
+        if (error < 3u) f.c.reg_cut = error + 1u;
+        if (error == 3u) f.c.short_read = 1u;
+        if (error == 4u) f.c.cut = 6u;
+        if (error == 5u) f.c.payload[0][20] ^= 1u;
+        if (error == 6u) f.w.verification = UINT32_MAX;
+        if (error == 7u) f.w.epoch = UINT32_MAX - 2u;
+        if (error == 8u) memset(f.c.flash.bytes, 0xff, sizeof f.c.flash.bytes);
+        r = run(&f.c);
+        CHECK(r.status == (error == 7u ? BOOT_RUNTIME_WATCHDOG_HANDOFF_FAILED :
+            BOOT_RUNTIME_WATCHDOG_RUNTIME_FAILED));
+        if (error == 7u)
+        {
+            CHECK(r.handoff == BOOT_HANDOFF_ARGUMENT && r.runtime.status == BOOT_RUNTIME_OK);
+            CHECK(f.w.epoch == UINT32_MAX && f.c.feeds == 2u);
+        }
+        if (error == 4u || error == 6u)
+            CHECK(r.runtime.selection.verify_result[0] == BOOT_VERIFY_ERROR_ABORTED);
+        CHECK(f.c.h_calls == 0u && f.w.owner == BOOT_WATCHDOG_BOOT);
+        CHECK(f.w.blocked == 1u && f.handoff.blocked == 1u && f.w.evidence == 0u);
+        CHECK(f.c.flash.erases == 0u && f.c.flash.writes == 0u);
+        CHECK(memcmp(&f.launch_out, &f.c.launch_sentinel, sizeof f.launch_out) == 0);
+        duplicate(&f);
+    }
+    for (unsigned kind = 1u; kind <= 3u; ++kind)
+    {
+        fixture_t baseline;
+        size_t commit;
+        prepare(&baseline, 0u, 0u, kind, 0u); enable_launch(&baseline);
+        if (kind == 2u)
+        {
+            baseline.c.payload[0][20] ^= 1u;
+            baseline.c.h_vtor = BOOT_SLOT_B_BASE;
+        }
+        if (kind == 3u) baseline.c.captured = 8u;
+        CHECK(run(&baseline.c).status == BOOT_RUNTIME_WATCHDOG_OK);
+        commit = baseline.c.commit_call;
+        for (unsigned after = 0u; after < 2u; ++after)
+        for (size_t offset = 0u; offset < 4u; ++offset)
+        {
+            fixture_t f;
+            boot_runtime_watchdog_result_t r;
+            boot_store_snapshot_t authority;
+            prepare(&f, 0u, 0u, kind, 0u); enable_launch(&f);
+            if (kind == 2u) f.c.payload[0][20] ^= 1u;
+            if (kind == 3u) f.c.captured = 8u;
+            f.c.flash.cut_call = commit + offset; f.c.flash.fail_after = (int)after;
+            r = run(&f.c);
+            CHECK(r.status == BOOT_RUNTIME_WATCHDOG_RUNTIME_FAILED);
+            CHECK(r.runtime.status == BOOT_RUNTIME_RECONCILE && f.c.h_calls == 0u);
+            CHECK(f.c.flash.calls == commit + offset);
+            CHECK(f.w.blocked == 1u && f.handoff.blocked == 1u && f.w.evidence == 0u);
+            CHECK(memcmp(&f.launch_out, &f.c.launch_sentinel, sizeof f.launch_out) == 0);
+            duplicate(&f);
+            f.c.flash.stopped = 0; f.c.flash.cut_call = SIZE_MAX;
+            CHECK(boot_store_load(&f.c.inner, &authority) == BOOT_STORE_OK);
+            CHECK(authority.record.sequence == 100u + (offset != 0u || after ? 1u : 0u));
+            duplicate(&f);
+        }
+    }
+}
+static void launch_preflight(void)
+{
+    for (unsigned bad = 0u; bad < 11u; ++bad)
+    {
+        fixture_t f;
+        boot_runtime_watchdog_result_t r;
+        prepare(&f, 0u, 0u, 0u, 0u); enable_launch(&f);
+        if (bad == 2u) f.handoff.io.operation = NULL;
+        if (bad == 3u) f.handoff.io.terminal_intent = NULL;
+        if (bad == 4u) f.handoff.blocked = 1u;
+        if (bad == 5u) f.handoff.finished = 1u;
+        if (bad == 6u) atomic_flag_test_and_set(&f.handoff.entered);
+        if (bad == 7u) f.observed.ipsr = 1u;
+        if (bad == 8u) f.observed.control = 1u;
+        if (bad == 9u) f.observed.basepri = 1u;
+        if (bad == 10u) f.observed.primask = 2u;
+        r = boot_runtime_watchdog_launch(&f.bridge, &f.w,
+            bad == 0u ? NULL : &f.handoff, bad == 1u ? NULL : &f.observed,
+            &f.registers, &f.store, &f.images, payload_read, &f.c, &f.launch_out);
+        CHECK(r.status == (bad < 2u ? BOOT_RUNTIME_WATCHDOG_ARGUMENT : BOOT_RUNTIME_WATCHDOG_REJECTED));
+        CHECK(f.bridge.consumed == 0u && f.bridge.runtime.consumed == 0u);
+        CHECK(f.c.calls == 0u && f.c.reg_calls == 0u && f.c.flash.calls == 0u && f.c.h_calls == 0u);
+        CHECK(f.w.blocked == 0u && f.w.owner == BOOT_WATCHDOG_BOOT);
+        CHECK(memcmp(&f.launch_out, &f.c.launch_sentinel, sizeof f.launch_out) == 0);
+        f.handoff.io.operation = handoff_operation; f.handoff.io.terminal_intent = terminal_intent;
+        f.handoff.blocked = 0u; f.handoff.finished = 0u;
+        if (bad == 6u) atomic_flag_clear(&f.handoff.entered);
+        f.observed = (boot_handoff_context_t){0};
+        CHECK(run(&f.c).status == BOOT_RUNTIME_WATCHDOG_OK);
+        duplicate(&f);
+    }
+}
+static void launch_aliases(void)
+{
+    for (unsigned alias = 0u; alias < 9u; ++alias)
+    {
+        fixture_t f;
+        union {
+            boot_runtime_watchdog_t bridge;
+            boot_watchdog_t watchdog;
+            boot_handoff_t handoff;
+            boot_reset_register_adapter_t registers;
+            boot_store_adapter_t store;
+            boot_select_images_t images;
+            boot_handoff_context_t observed;
+            boot_runtime_watchdog_launch_t out;
+        } overlap;
+        boot_runtime_watchdog_t *bridge;
+        boot_watchdog_t *watchdog;
+        boot_handoff_t *h;
+        const boot_reset_register_adapter_t *registers;
+        const boot_store_adapter_t *store;
+        const boot_select_images_t *images;
+        const boot_handoff_context_t *observed;
+        boot_runtime_watchdog_launch_t *out;
+        boot_runtime_watchdog_result_t r;
+        prepare(&f, 0u, 0u, 0u, 0u); enable_launch(&f);
+        memset(&overlap, 0, sizeof overlap);
+        bridge = &f.bridge; watchdog = &f.w; h = &overlap.handoff;
+        registers = &f.registers; store = &f.store; images = &f.images;
+        observed = &f.observed; out = &f.launch_out;
+        if (alias == 0u || alias == 8u)
+        {
+            boot_runtime_watchdog_init(&overlap.bridge);
+            bridge = &overlap.bridge;
+        }
+        if (alias == 1u) watchdog = &overlap.watchdog;
+        if (alias == 2u) out = &overlap.out;
+        if (alias == 3u) { overlap.registers = f.registers; registers = &overlap.registers; }
+        if (alias == 4u) { overlap.store = f.store; store = &overlap.store; }
+        if (alias == 5u) { overlap.images = f.images; images = &overlap.images; }
+        if (alias == 6u || alias == 7u) observed = &overlap.observed;
+        if (alias == 7u || alias == 8u) { h = &f.handoff; out = &overlap.out; }
+        r = boot_runtime_watchdog_launch(bridge, watchdog, h, observed,
+            registers, store, images, payload_read, &f.c, out);
+        CHECK(r.status == BOOT_RUNTIME_WATCHDOG_ARGUMENT && r.valid == 0u);
+        CHECK(bridge->consumed == 0u && bridge->runtime.consumed == 0u);
+        CHECK(f.c.calls == 0u && f.c.reg_calls == 0u && f.c.flash.calls == 0u && f.c.h_calls == 0u);
+        CHECK(memcmp(&f.launch_out, &f.c.launch_sentinel, sizeof f.launch_out) == 0);
+        f.c.bridge = bridge;
+        CHECK(run(&f.c).status == BOOT_RUNTIME_WATCHDOG_OK);
+        duplicate(&f);
+    }
+}
 int main(void)
 {
+    launch_aliases(); launch_preflight(); launch_success(); launch_handoff_faults(); launch_stops();
     preflight(); structural(); single(); multistream(); failures(); wdt_faults();
     ready_auth_failure(); reset_and_uncertain(); snapshots_and_aliases();
 #ifdef BOOT_VERIFY_FAULT_INJECTION

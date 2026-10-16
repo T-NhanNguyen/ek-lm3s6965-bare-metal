@@ -1,9 +1,10 @@
-# Runtime → verifier → watchdog bridge (HOST only)
+# Protected runtime selection and launch intent (HOST only)
 
 `boot_runtime_watchdog_run` wraps the unchanged one-shot [runtime](boot-runtime.md)
 and real selector/launch/verifier callbacks. It returns an owned decision, **not
-execution or handoff permission**. It does not configure a controller, bind MMIO,
-install an ISR, transfer ownership or establish physical timing.
+execution or handoff permission**. Use `boot_runtime_watchdog_launch` instead
+for the complete selection-to-final-handoff intent transaction below. Neither
+entry configures a controller, binds MMIO, installs an ISR or proves timing.
 
 ## Establish protection, then adopt it
 
@@ -39,6 +40,51 @@ callbacks return BUSY. A private source-only held-operation seam reuses the same
 watchdog report/service logic without releasing that guard. It is not a consumer
 API. Caller exclusivity is still necessary: the guard cannot stop direct MMIO,
 field mutation, copying or reinitialization.
+
+## Complete launch intent
+
+1. Configure the watchdog before reset capture as above.
+2. Initialize a fresh `boot_handoff_t` with truthful logical handoff callbacks.
+   Supply a current `boot_handoff_context_t` observation of privileged Thread mode.
+3. Call `boot_runtime_watchdog_launch` once instead of the decision-only entry.
+   Pass disjoint `boot_runtime_watchdog_launch_t` output storage.
+
+The launch entry uses the same bridge object and the same watchdog object.
+It holds the bridge, handoff and watchdog guards through output publication.
+Nested runs and public watchdog operations return BUSY. Guards do not prevent direct
+hardware access. Keep exclusive ownership of objects, images and controllers.
+Keep opaque contexts disjoint from all mutable objects and output. The entry
+checks known object, input and output spans for overlap. It copies the core
+observation, reset/store tables and manifest prefixes before callbacks.
+
+Only runtime OK enters the existing final-handoff transaction. The request uses
+the selected verified image and the watchdog's **current** epoch after all real
+services. It does not restore the entry epoch or reset stream history. Handoff
+orders exclusion, SysTick stop, both interrupt-bank disables, source quiescence,
+core and bank pending clears, the pre-VTOR barrier, selected VTOR and the
+post-VTOR barrier. It transfers watchdog ownership once before terminal intent.
+Transfer increments the current epoch without register IO or a feed. Terminal
+intent sets exact MSP and reset vector with CONTROL and all masks zero.
+The terminal callback records intent only. It must not execute the application.
+
+Success publishes `decision` and `intent` together as owned values. The whole
+output stays frozen through all callbacks and on every error. No handoff step
+writes metadata or reports progress. READY-to-TRIAL, reset accounting and previous
+promotion retain only their existing required writes before handoff.
+
+Structural and preflight rejection permit correction without IO or consumption.
+Every admitted runtime or handoff failure consumes the bridge and quarantines
+both handoff and watchdog. Quarantine adds no IO. Stop on failure. Do not retry,
+resume boot work or replay reset accounting. A terminal failure can follow a
+recorded intent. It retains APPLICATION ownership and the advanced epoch.
+Read-only authority reconciliation cannot authorize another launch in this boot.
+The decision-only and launch entries share consumption. Do not chain them.
+
+`HANDOFF` in the report makes the last handoff preflight or run result valid.
+It does not mean handoff ran. Runtime failure can retain handoff preflight OK.
+`HANDOFF_FAILED` means runtime succeeded but final handoff failed. Only wrapper
+OK means the complete requested transaction succeeded. No default diagnostic
+field or partial validity bit grants launch permission.
 
 ## Genuine milestones only
 
@@ -143,7 +189,39 @@ AUTH service cuts before/after effects with no CURRENT fallback, store commit or
 additional feed (apart from an ICR effect already applied by the failing call).
 Execution is deferred to test-merit-gate: compilation alone claims no test pass.
 
-Standalone ARM archive target: `boot_runtime_watchdog`; root opt-in archive:
-`lm3s6965_boot_runtime_watchdog`. Both depend on runtime and watchdog archives;
-consumers still supply verifier/crypto and final-link policy. Neither is a boot
+Launch regressions use the real final-handoff component with these same fixtures.
+They cover both slots and metadata pages, min/max images, READY/TRIAL/current,
+counted reset accounting, candidate fallback and previous promotion. They check
+current epoch and lifetime IDs, exact ordered callbacks, 96 before/after-effect
+handoff cuts, terminal ambiguity, no extra writes or feeds, frozen owned output,
+callback reentry, cross-entry duplicates, preflight correction and known-span
+aliases. They also cover runtime stops and commit-relative uncertainty without
+handoff or accounting replay. These are modeled cases, not physical trials.
+
+Standalone ARM archive target: `boot_runtime_watchdog`. Root opt-in archive:
+`lm3s6965_boot_runtime_watchdog`. Both depend on runtime and handoff archives.
+Consumers still supply verifier/crypto and final-link policy. Neither is a boot
 image or an integration/fit/timing acceptance claim.
+
+## Next application FTP and PC boundary
+
+MVP 4 starts with a new three-operation service and a bounded streaming state
+machine. Start with strict text, parser, admission and durable-success HOST
+tests. Then integrate storage, PC reconnect and idempotent confirmation. Preserve
+the existing synchronous RAM-only FTP storage contract. Do not silently replace
+its backend or inherit its acceptance verdict.
+
+The new operations are `RETR boot-status`, `STOR firmware` and `STOR confirm`.
+Use TYPE I for all three. Status has the specified 21 ordered ASCII LF keys and
+a 1024-byte limit. Confirmation has exactly four once-only keys and a 128-byte
+limit. Firmware has a signed 160-byte manifest and exactly its declared payload.
+Authenticate and admit before destination invalidation or erase. Durable READY
+readback must precede upload success and the reset request. Durable confirmation
+readback must precede confirmation success. A matching confirmed duplicate writes
+nothing. The PC reconnects and checks exact running image and trial status after
+upload, even if the completion reply was lost. Missing status means UNKNOWN.
+
+Production trampoline and startup object placement, clock/watchdog continuity,
+the candidate deadline from application startup, final link/32 KiB fit and
+physical service gaps remain separate open gates. This HOST intent transaction
+does not execute an application or implement FTP, a network service or PC tools.

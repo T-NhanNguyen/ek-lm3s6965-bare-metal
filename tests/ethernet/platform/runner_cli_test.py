@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-RUNNER = Path(__file__).resolve().parents[2] / "test.sh"
+RUNNER = Path(__file__).resolve().parents[3] / "scripts/ethernet/test.sh"
 SUITES = ["core", "tcp", "lwip", "file", "platform", "consumer", "driver", "raw", "link"]
 
 

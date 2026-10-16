@@ -3,6 +3,11 @@
 `include/lm3s6965/boot_handoff.h` and `src/boot_handoff.c` implement a host-model
 admission and ordered trace gate. Success records **terminal entry intent**, not
 physical execution. This module is opt-in and is not part of BSP startup.
+The [protected launch entry](boot-runtime-watchdog.md#complete-launch-intent)
+composes real reset accounting and selection with this same handoff transaction.
+It holds both object guards from admission through owned output publication.
+A private held-operation seam preserves the public transfer semantics without
+copying or releasing the watchdog. The standalone API below remains unchanged.
 
 ## Admission and authority
 

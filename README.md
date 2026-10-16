@@ -186,8 +186,8 @@ is **not** the identity in the config that OpenOCD ships:
 | **Product ID** | `0xbcda` | **`0xbcd9`** |
 | **Product string** | `"Luminary Micro ICDI Board"` | **`"Stellaris Evaluation Board"`** |
 
-The shipped file targets the LM3S9B9x kit. `openocd/interface/luminary-icdi-ek-lm3s6965.cfg` in
-this repository carries the correct identity. `openocd/board/ek-lm3s6965.cfg` adds the generic
+The shipped file targets the LM3S9B9x kit. `tools/openocd/interface/luminary-icdi-ek-lm3s6965.cfg` in
+this repository carries the correct identity. `tools/openocd/board/ek-lm3s6965.cfg` adds the generic
 Stellaris target.
 
 ### Check the cable first
@@ -216,7 +216,7 @@ scripts/flash.sh path/to/other.elf    # or name the file
 ```
 
 The script programs, verifies, and resets the target:
-`openocd -f openocd/board/ek-lm3s6965.cfg -c "program <elf> verify reset exit"`.
+`openocd -f tools/openocd/board/ek-lm3s6965.cfg -c "program <elf> verify reset exit"`.
 
 ### Flash the FreeRTOS image
 
@@ -289,18 +289,19 @@ examples/freertos/               FreeRTOS example (main.c, CMakeLists.txt)
 examples/ethernet-link/          PHY-only link diagnostic
 examples/ethernet-raw/           Bounded RAW request/reply diagnostic
 examples/ethernet-ftp/          Opt-in FTP example and caller-owned lwIP port
-scripts/ethernet/               Ethernet tooling, fixtures, and offline suite runner
-openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
-openocd/interface/               ICDI interface config for this board's 0403:bcd9 probe
+scripts/ethernet/               Operational Ethernet tooling and offline suite runner
+tests/ethernet/                 FTP, file, platform/shim, RAW, and link fixtures
+tools/openocd/board/ek-lm3s6965.cfg  OpenOCD board config (Stellaris target + self-contained search path)
+tools/openocd/interface/         ICDI interface config for this board's 0403:bcd9 probe
 scripts/check-connection.sh      Cable and probe detection
 scripts/probe.sh                 Read-only connectivity check
 scripts/flash.sh                 Program, verify, reset
 scripts/console.sh               Read the UART0 console through a USB serial adapter
 scripts/icdi-console.sh          Capture the SWO startup marker through the ICDI
 scripts/ethernet/test.sh         Default-safe consolidated offline suites
-scripts/ethernet/link/           Link runners and shared ICDI capture fixtures
+scripts/ethernet/link/           Operational link launcher and evaluator
 scripts/ethernet/raw/host/       Real native Mac helper executable sources
-scripts/ethernet/raw/tests/      Offline RAW fixtures
+tests/ethernet/raw/             Offline RAW fixtures
 ```
 
 ## Ethernet diagnostics

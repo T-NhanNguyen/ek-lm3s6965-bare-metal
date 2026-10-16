@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "stack_watermark.py"
+MODULE_PATH = Path(__file__).resolve().parents[3] / "scripts/ethernet/platform/stack_watermark.py"
 SPEC = importlib.util.spec_from_file_location("stack_watermark", MODULE_PATH)
 scanner = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = scanner

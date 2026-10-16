@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIRECTORY=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPOSITORY_ROOT=$(dirname "$SCRIPT_DIRECTORY")
-BOARD_CONFIG="${REPOSITORY_ROOT}/openocd/board/ek-lm3s6965.cfg"
+BOARD_CONFIG="${REPOSITORY_ROOT}/tools/openocd/board/ek-lm3s6965.cfg"
 
 if ! command -v openocd >/dev/null 2>&1; then
     echo "error: openocd not found on PATH — install with 'brew install openocd'" >&2

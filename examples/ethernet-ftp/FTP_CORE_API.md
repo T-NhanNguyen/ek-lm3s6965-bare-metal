@@ -9,6 +9,15 @@ explicit immutable `const ftp_storage_t *` descriptor and its context/ops.
 Storage operations are synchronous, bounded, serialized, and non-reentrant.
 This remains a singleton, not a multi-server or shared-stack abstraction.
 
+Optional `ftp_core_bind_operation` uses a **separate** foreground async contract
+(`ftp_operation.h`), never substitutes flash beneath `ftp_storage_ops_t`.
+The RAM rules below are unchanged. Async transport uses `ftp_core_upload_span`
+for exact accepted prefixes and calls `ftp_core_foreground` once per foreground
+turn (already done by `ftp_tcp_service`). WAIT is not byte progress; async EOF
+waits for durable acceptance before requesting FIN/226. See
+[FTP boot binding](../../docs/ftp-boot-binding.md) for ownership, quarantine,
+timeouts, cancellation/reset intent and remaining startup/hardware limits.
+
 The native assertions test the core only. They do not prove TCP behavior,
 board IP operation, or an FTP round trip on hardware. Run the offline check:
 

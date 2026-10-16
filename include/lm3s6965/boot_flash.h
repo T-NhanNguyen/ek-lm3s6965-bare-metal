@@ -45,6 +45,9 @@ typedef struct
     uint32_t mhz, polls;
     atomic_flag entered;
     unsigned blocked;
+    /* First cause of the current blocked episode; preserved by BLOCKED reads.
+     * Valid while blocked, cleared only by successful explicit recovery. */
+    boot_flash_result_t blocked_result;
 } boot_flash_t;
 
 /* Initialize ONCE before publication, never to bypass a blocked operation.

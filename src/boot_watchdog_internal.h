@@ -7,6 +7,8 @@
 #include "lm3s6965/boot_watchdog.h"
 #include "lm3s6965/boot_verify.h"
 
+boot_watchdog_result_t boot_watchdog_transfer_held(boot_watchdog_t *w,
+    uint32_t epoch);
 boot_watchdog_result_t boot_watchdog_service_held(boot_watchdog_t *w,
     boot_watchdog_owner_t owner, uint32_t epoch);
 boot_watchdog_result_t boot_watchdog_report_held(boot_watchdog_t *w,

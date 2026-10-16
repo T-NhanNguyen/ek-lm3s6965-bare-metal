@@ -54,7 +54,7 @@ target_compile_definitions(test_runtime_fault PRIVATE BOOT_VERIFY_FAULT_INJECTIO
 foreach(variant IN ITEMS "" "_fault")
     if(variant STREQUAL "_fault")
         add_library(boot_runtime_watchdog_fault STATIC ../../src/boot_runtime_watchdog.c)
-        target_link_libraries(boot_runtime_watchdog_fault PUBLIC boot_runtime_fault boot_watchdog)
+        target_link_libraries(boot_runtime_watchdog_fault PUBLIC boot_runtime_fault boot_handoff)
         target_compile_options(boot_runtime_watchdog_fault PRIVATE
             -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
             -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
@@ -68,6 +68,12 @@ foreach(variant IN ITEMS "" "_fault")
     add_test(NAME boot_runtime_watchdog${variant} COMMAND test_runtime_watchdog${variant})
 endforeach()
 target_compile_definitions(test_runtime_watchdog_fault PRIVATE BOOT_VERIFY_FAULT_INJECTION)
+# Keep test-only assert oracles active for the single optimized HOST boundary.
+foreach(target IN ITEMS test_launch test_launch_fault test_select test_select_fault
+                        test_runtime test_runtime_fault
+                        test_runtime_watchdog test_runtime_watchdog_fault)
+    target_compile_options(${target} PRIVATE -UNDEBUG)
+endforeach()
 set(BOOT_LAUNCH_ASAN_OPTIONS "halt_on_error=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     string(APPEND BOOT_LAUNCH_ASAN_OPTIONS ":detect_leaks=1")

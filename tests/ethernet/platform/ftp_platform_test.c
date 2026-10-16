@@ -10,7 +10,7 @@
 #include "ethernet.h"
 
 volatile uint32_t test_systick[3];
-#include "../../../../examples/ethernet-ftp/net_clock.c"
+#include "../../../examples/ethernet-ftp/net_clock.c"
 
 static bool allocation_fail;
 static bool allocate_chain;
@@ -25,7 +25,7 @@ static struct pbuf *test_pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type ty
     return first;
 }
 #define pbuf_alloc test_pbuf_alloc
-#include "../../../../examples/ethernet-ftp/lm3s_netif.c"
+#include "../../../examples/ethernet-ftp/lm3s_netif.c"
 #undef pbuf_alloc
 
 static ethernet_result_t poll_result = ETHERNET_OK;

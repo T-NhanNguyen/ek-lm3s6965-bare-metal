@@ -52,12 +52,34 @@ target_link_libraries(lm3s6965_boot_snapshot PUBLIC lm3s6965_boot_diag_publicati
 target_compile_options(lm3s6965_boot_snapshot PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
+# HOST service boundary only. No FTP transport or production flash binding.
+add_library(lm3s6965_boot_service STATIC EXCLUDE_FROM_ALL
+    boot_service.c boot_lifecycle.c)
+target_link_libraries(lm3s6965_boot_service PUBLIC lm3s6965_boot_snapshot)
+target_compile_options(lm3s6965_boot_service PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
 # Injected controller only: no MMIO binding or startup/runtime integration.
 add_library(lm3s6965_boot_flash STATIC EXCLUDE_FROM_ALL
     boot_flash.c boot_store.c boot_format.c)
 target_include_directories(lm3s6965_boot_flash PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 target_compile_options(lm3s6965_boot_flash PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+# Separate bounded HOST receive transaction, never a RAM FTP backend.
+# Final consumers supply verifier/crypto dependencies; not a linked boot image.
+add_library(lm3s6965_boot_receive STATIC EXCLUDE_FROM_ALL
+    boot_receive.c boot_lifecycle.c)
+target_link_libraries(lm3s6965_boot_receive PUBLIC lm3s6965_boot_flash)
+target_compile_options(lm3s6965_boot_receive PRIVATE
+    ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+# Concrete opt-in FTP boot binding, no enabled updater or startup/MMIO glue.
+add_library(lm3s6965_ftp_boot STATIC EXCLUDE_FROM_ALL ftp_boot.c)
+target_link_libraries(lm3s6965_ftp_boot PUBLIC
+    lm3s6965_ftp_core lm3s6965_boot_service lm3s6965_boot_receive)
+target_compile_options(lm3s6965_ftp_boot PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
 # Injected watchdog ownership/progress only; no MMIO/ISR/runtime integration.
@@ -94,7 +116,7 @@ target_compile_options(lm3s6965_boot_runtime PRIVATE
 add_library(lm3s6965_boot_runtime_watchdog STATIC EXCLUDE_FROM_ALL
     boot_runtime_watchdog.c)
 target_link_libraries(lm3s6965_boot_runtime_watchdog PUBLIC
-    lm3s6965_boot_runtime lm3s6965_boot_watchdog)
+    lm3s6965_boot_runtime lm3s6965_boot_handoff)
 target_compile_options(lm3s6965_boot_runtime_watchdog PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 

@@ -26,27 +26,28 @@ scripts/ethernet/
   test.sh                         Consolidated offline runner
   ftp/
     ftp-lwip-validation.md         Real-stack evidence and limits
-    tests/                        Core, mock TCP, real lwIP fixtures
-      ftp-library-consumer/       External caller and caller-owned config
-  file/tests/                     RAM file fixture
   platform/
     stack_watermark.py            Offline, exact-bounds FTP stack dump scanner
-    tests/                        Driver, clock/netif, heap, CLI and stack scanner fixtures
-    shims/                        Shared native MMIO and lwIP configuration shims
   raw/
     ethernet-raw-test.sh           Separate build/self-test/LIVE launcher
     host/                         Real native Mac executable sources
-    tests/                        Protocol, BPF-record, and privilege fixtures
   link/
     ethernet-link-test.sh         Separate saved-text/live capture launcher
     ethernet_link_test.py          Standard-library evaluator
-    tests/                        Evaluator and shared ICDI capture fixtures
+tests/ethernet/
+  ftp/                            Core, mock TCP, real lwIP and boot fixtures
+    ftp-library-consumer/         External caller and caller-owned config
+  file/                           RAM file fixture
+  platform/                       Driver, clock/netif, heap, CLI and stack scanner fixtures
+    shims/                        Shared native MMIO and lwIP configuration shims
+  raw/                            Protocol, BPF-record, and privilege fixtures
+  link/                           Evaluator and shared ICDI capture fixtures
 ```
 
 `raw/host/` contains the real Mac helper main, capture, and privilege implementation.
 These are executable sources, not MCU sources or test fixtures.
 The MCU diagnostic and protocol remain in `examples/ethernet-raw/`.
-Shared ICDI fixtures remain under `link/tests/`, despite their console responsibility.
+Shared ICDI fixtures live under `tests/ethernet/link/`, despite their console responsibility.
 The shared implementation remains `scripts/icdi-console.sh`. It was not relocated.
 Example lwIP port headers remain in `examples/ethernet-ftp/arch/`.
 Consumers own their port configuration. See the [platform contract](../../examples/ethernet-ftp/PLATFORM_CONTRACT.md#lwip-architecture-port).
