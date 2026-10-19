@@ -7,8 +7,11 @@
 /* One instance, foreground owner. Call after lwip_init and clock startup. */
 err_t lm3s_netif_initialize(uint32_t cpu_clock_hz, uint32_t now);
 /* Poll PHY at most once per 10 ms; consume at most eight RX frames per call.
- * Down frames are discarded. Link loss flushes ARP and calls FTP teardown. */
-void lm3s_netif_service(uint32_t now);
+ * Down frames are discarded. Link loss flushes ARP and calls FTP teardown.
+ * True means completed bounded polling, including idle, link-down, consumed
+ * drops and pbuf pressure; not readiness or complete queue drain. False means
+ * uninitialized or an actual PHY/RX driver failure; never completion evidence. */
+bool lm3s_netif_service(uint32_t now);
 bool lm3s_netif_ready(void);
 const ip4_addr_t *lm3s_netif_address(void);
 #endif

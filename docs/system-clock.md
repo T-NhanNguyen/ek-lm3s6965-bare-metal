@@ -25,6 +25,22 @@ Check the `rcc:` line in the banner. It must read **`0x01CE1380`**. That value m
 > the configuration writes land and that the lock wait ends. QEMU does **not** time the UART
 > against the configured baud rate. See [Known limitations](../README.md#known-limitations).
 
+### Opt-in foreground clock continuity
+
+The PLL sequence above describes cold standalone initialization. The opt-in
+foreground application inherits validated RCC/RCC2 and system Hz from boot and
+**does not rerun the PLL routine or change system frequency**. After RAM/core
+initialization and FTP core reset, masked `boot_startup_c_ready` validates
+readiness. `net_clock_initialize` starts application 1 kHz SysTick while masked,
+then takes the final startup GPTM sample and publishes a separate conservative
+entry-relative offset before safe unmask. lwIP/netif initialization precedes
+explicit named GPTM release; no GPTM reads occur afterward. SysTick ISR time is
+modular application milliseconds, with no WDT feed. This changes timer ownership,
+not WDT frequency/load/history or the system clock. See
+[startup continuity](boot-startup.md#startup-only-gptm--application-systick) for
+APIs, offset arithmetic, provenance and bounded verification limits. Production
+physical WDT/boot producer wiring and physical timing remain unproven.
+
 ### Why the divisor is off by one
 
 The `SYSDIV` field encodes `divisor - 1`, so 50 MHz needs `3`, not `4`. TivaWare's

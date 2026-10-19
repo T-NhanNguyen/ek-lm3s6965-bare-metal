@@ -86,6 +86,23 @@ It does not mean handoff ran. Runtime failure can retain handoff preflight OK.
 OK means the complete requested transaction succeeded. No default diagnostic
 field or partial validity bit grants launch permission.
 
+## Post-return startup continuity (opt-in)
+
+Only after this function has actually returned OK may its trusted boot caller
+pass the owned output/report to `boot_startup_prepare`, under continued physical
+PRIMASK exclusion and stable authenticated image storage. Guards being released
+is a call-site postcondition; no atomic_flag layout inspection is introduced.
+A matching APPLICATION owner alone is insufficient (terminal may have failed).
+[Startup continuity](boot-startup.md) consumes EMPTY → PREPARED → DISPATCHING →
+ENTERED → C_READY once, with any admitted error terminal FAILED. Dispatch never
+repeats runtime, quiescence, accounting, transfer or metadata writes.
+
+The retained `entry_epoch` is immutable history, compared to the original
+controller only through early entry. Later service uses the live watchdog epoch;
+first successful foreground feed does not invalidate running identity. The new
+code does not configure/feed during startup, choose a physical clock source,
+enable the candidate deadline actuator or implement accepted-reset grace.
+
 ## Genuine milestones only
 
 | Actual verifier event | Bridge action |

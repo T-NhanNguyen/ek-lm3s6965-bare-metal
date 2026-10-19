@@ -9,6 +9,11 @@
 #include "lm3s6965/ram_file.h"
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
+#if defined(LM3S6965_FTP_FOREGROUND_OWNER)
+#include "foreground_owner.h"
+#include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_startup_gptm.h"
+#endif
 
 #if LWIP_VERSION_MAJOR != 2 || LWIP_VERSION_MINOR != 2 || LWIP_VERSION_REVISION != 1
 #error "This platform contract requires lwIP 2.2.1"
@@ -23,6 +28,9 @@ static const char basename[] = "hello";
 
 static void fail_closed(void)
 {
+#if defined(LM3S6965_FTP_FOREGROUND_OWNER)
+    boot_startup_stop();
+#endif
     for (;;)
     {
         /* No runtime console, protocol work or hardware retry loop. */
@@ -40,6 +48,22 @@ int main(void)
     /* Explicit cold-boot policy only; link/session cleanup preserves data. */
     ftp_core_reset();
 
+#if defined(LM3S6965_FTP_FOREGROUND_OWNER)
+    /* Validate the clock while masked and publish APP; no service evidence
+     * or feed. The final transition sample occurs later. */
+    if (!boot_startup_c_ready(&boot_startup_continuity))
+    {
+        fail_closed();
+    }
+    /* Adopt only the explicit startup GPTM capability. Start application
+     * SysTick while masked, sample GPTM AFTER start, commit conservative entry
+     * offset, and safely unmask only SysTick. Never restart/retransfer WDT. */
+    const uint32_t clock_hz = boot_startup_continuity.hz;
+    if (!net_clock_initialize(clock_hz))
+    {
+        fail_closed();
+    }
+#else
     const bool pll_locked = system_control_configure_pll();
     const uint32_t rcc = system_control_read_rcc();
     const uint32_t clock_hz = pll_locked ? SYSTEM_CLOCK_FREQUENCY_HZ :
@@ -57,11 +81,27 @@ int main(void)
     {
         fail_closed();
     }
+#endif
     lwip_init();
     if (lm3s_netif_initialize(clock_hz, sys_now()) != ERR_OK)
     {
         fail_closed();
     }
+#if defined(LM3S6965_FTP_FOREGROUND_OWNER)
+    /* Networking now uses SysTick only. Release precisely the adapter-named
+     * GPTM after lwIP/netif init; never guess Timer0 or stop an unknown source. */
+    if (!boot_startup_gptm_release(&boot_startup_continuity))
+    {
+        fail_closed();
+    }
+    for (;;)
+    {
+        if (!foreground_owner_turn())
+        {
+            fail_closed();
+        }
+    }
+#else
     bool transport_started = false;
     for (;;)
     {
@@ -81,6 +121,7 @@ int main(void)
          * binds RAM hello only: no boot/controller/running-provenance startup
          * objects or reset actuator exist here. An updater must supply those
          * and bind ftp_boot_operation explicitly; do not enable a fake one. */
-        ftp_tcp_service(sys_now());
+        (void)ftp_tcp_service(sys_now());
     }
+#endif
 }

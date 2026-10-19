@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import tempfile
 
+from qemu_output import check_pass_output
+
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE_ROOT = Path('/tmp/boot-handoff-target')
 
@@ -185,7 +187,7 @@ def main():
                      '-monitor', 'none', '-serial', 'none',
                      '--semihosting-config', 'enable=on,target=native',
                      '-kernel', elf, timeout=15, output_log=opt + '.qemu.log')
-        require(output == 'HANDOFF PASS\n', 'unexpected QEMU output: ' + repr(output))
+        check_pass_output(output, 'HANDOFF PASS\n')
         print(opt + ': 128 shared-machine slot/stack/mask cases, core quiescence, '
               'selected SVC, two stack witness words, watchdog continuity PASS')
 

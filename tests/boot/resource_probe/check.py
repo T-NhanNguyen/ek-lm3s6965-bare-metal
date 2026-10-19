@@ -86,7 +86,7 @@ def inspect(data, *, execution=False, ftp=False, old_ftp_2k=False):
         require(n in symbols, "missing symbol: " + n)
         return symbols[n][0]
     require(not old_ftp_2k or ftp, "old capacity fixture must use FTP allocator")
-    heap_end = sym("_heap_start") + (2048 if old_ftp_2k else 8192) if ftp else 0x2000dfc0
+    heap_end = sym("_heap_start") + (2048 if old_ftp_2k else 8192) if ftp else 0x2000dbc0
     for n, value in {"_flash_payload_start": 0, "_flash_payload_limit": 0x40000 if ftp else 0x8000,
                      "_diagnostic_start": 0x2000dfc0, "_diagnostic_end": 0x2000e000,
                      "_stack_limit": 0x2000e000, "_estack": 0x20010000,
@@ -98,6 +98,11 @@ def inspect(data, *, execution=False, ftp=False, old_ftp_2k=False):
     for n, addr, size in ((".boot_diagnostic", 0x2000dfc0, 64), (".stack", 0x2000e000, 8192)):
         require(n in sections and (sections[n][1], sections[n][3], sections[n][5]) == (8, addr, size),
                 "wrong NOLOAD reservation: " + n)
+    if not ftp:
+        require(sym("_continuity_start") == 0x2000dbc0 and sym("_continuity_end") == 0x2000dfc0,
+                "wrong continuity bounds")
+        h = sections.get(".boot_continuity")
+        require(h and (h[1], h[3], h[5]) == (8, 0x2000dbc0, 1024), "wrong continuity NOLOAD")
     vector = sections.get(".isr_vector")
     require(vector and vector[3] == 0 and vector[5] == 236, "wrong vectors")
     msp, reset = struct.unpack_from("<II", data, vector[4])

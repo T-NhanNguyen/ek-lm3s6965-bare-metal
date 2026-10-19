@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import tempfile
 
+from qemu_output import check_pass_output
+
 ROOT = Path(__file__).resolve().parents[2]
 
 def run(*args):
@@ -48,7 +50,7 @@ def main():
             p = subprocess.run([qemu, '-M', 'lm3s6965evb', '-nographic', '-monitor', 'none',
                 '-serial', 'none', '--semihosting-config', 'enable=on,target=native',
                 '-kernel', elf], capture_output=True, text=True, timeout=15)
-            assert p.returncode == 0 and p.stdout + p.stderr == 'PUBLICATION PASS\n', repr(p)
+            check_pass_output(p.stdout + p.stderr, 'PUBLICATION PASS\n', p.returncode)
             print(opt + ': IPSR/PRIMASK/DMB/aligned STR and LIVE64 boot/adopt/progress/snapshot/SVC (both reads masked/busy) PASS')
 
 if __name__ == '__main__':

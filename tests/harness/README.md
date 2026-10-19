@@ -7,8 +7,8 @@ python3 tests/harness/runner.py --all --budget-seconds 900 --failures-only
 ```
 
 Select exact existing cases using repeatable `--case target:name` instead of
-`--all`; see `manifest.json` for the explicit 35 CTest + 6 native + 13 Python
-universe (54 cases) and per-case intent/class/assertion ledger. `--all` runs53 representatives:
+`--all`; see `manifest.json` for the explicit 37 CTest + 6 native + 13 Python
+universe (56 cases) and per-case intent/class/assertion ledger. `--all` runs55 representatives:
 `lwip-boot` includes every RAM assertion from `lwip` before its boot cases;
 standalone `lwip` is compiled but its redundant execution is merged. It remains
 explicitly selectable. Selection is validated before
@@ -25,6 +25,12 @@ build (two build commands, one configuration). Python methods execute separately
 workflow's 23 methods stay nested inside its one CTest, never rerun standalone.
 `boot_pc_ftp` runs the offline FTP transport/CLI suite with mocked sockets, not a
 live FTP server; its internal methods are likewise nested, not extra rollup cases.
+`boot_startup` covers HOST continuity policy. `boot_startup_target` contains
+20 fresh QEMU processes (A/B × Os/Og × four positives plus one clock rejection),
+not 20 CTests. It asserts zero startup watchdog writes and feeds against
+independent pre-dispatch observations on the original context. Each incomplete
+service preserves feeds, writes, epoch and partial evidence; complete evidence
+permits exactly one feed and advances the live epoch without changing entry history.
 No embedded scenario or assertion body is removed. Debug is intentionally NOT
 reverified, and is not declared equivalent to Release.
 
@@ -50,15 +56,17 @@ Git status still detects excluded-path drift; these exclusions do not authorize
 publishing private/local files. Normal offline QEMU execution remains included;
 there is no device access, live connection or download mode in this runner.
 
-Offline runner-configuration regression (separate from the 54-case product
-manifest, no build, QEMU, sockets or devices):
+Offline runner-configuration and command-evidence regression (separate from the
+56-case product manifest, no build, QEMU, sockets or devices):
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/harness -p 'test_config.py' -v
 ```
 
-This checks the exact 35-name CTest/manifest roster, selection accounting, content
-exclusions before reads, and symlink privacy without launching the runner. It
+This checks the exact 37-name CTest/manifest roster, selection accounting, content
+exclusions before reads, and symlink privacy without launching the runner. Mocked
+startup commands check prelaunch command persistence, partial byte output on
+timeout, return codes and bounded output overflow. It
 requires its own gate result; syntax/static checks are not test passes.
 
 A pass means all existing assertions in that top-level execution completed.
@@ -70,6 +78,14 @@ reported as physical hardware, live transport, timing or target-fit acceptance.
 Failure records retain the first recognizable assertion/sanitizer diagnostic.
 If no source assertion is available, `at` points to the evidence log rather than
 an invented production source location. Full JUnit/logs retain exact details.
+Startup target commands persist command/timeout metadata before launch and save
+separate stdout/stderr (up to 1 MiB per stream), combined `.log`, return code or
+explicit timeout/launch-error status before raising. Overflow is infrastructure
+invalid, not silently truncated acceptance. `STARTUP INFRASTRUCTURE:` diagnostics
+are classified invalid by this runner; a target assertion remains a product
+failure. A timeout never supplies a fabricated return code. These diagnostics
+also remain visible to direct CTest gate owners in retained target artifacts.
+
 The runner detects skipped unittest methods even when their enclosing CTest
 returns success; skipped coverage is infrastructure-invalid, never passing.
 

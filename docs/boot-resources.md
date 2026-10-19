@@ -1,6 +1,32 @@
 # Boot verifier resources — reviewed Release link and isolated QEMU gate
 
-## Approved 8 KiB FTP increment — current state
+## Startup regression repair — measurement pending
+
+The later startup gate's `boot_resource_execution` stopped at the first boot
+calibration with `missing/extra report`. Its old runner discarded the actual
+process exit/stdout/stderr and deleted its temporary build; that history cannot
+establish either a NIC-warning cause or a production resource failure. The
+historical measurements below are not a new continuity-layout acceptance.
+
+The repaired runner retains a unique `/tmp/boot-resource-execution-*` directory:
+per-command argv/timeout/actual exit, separate byte-exact stdout/stderr (bounded
+at 1 MiB each, overflow rejects), timeout/launch-error metadata, build artifacts,
+ELF/map inputs and raw `.su` files. Frame origins/sizes/modes accompany a complete
+measurement. Raw evidence is saved before parsing, including nonzero exits and
+partial timeout output. `--evidence /tmp/<new-directory>` selects an explicit
+new destination; `--json` is restricted to `/tmp`.
+
+The parser allows only one optional exact offline prefix
+`qemu-system-arm: warning: nic stellaris_enet.0 has no peer\n` before the
+single newline-terminated `RESOURCE` report. Unknown/duplicate/trailing warnings,
+extra reports/output, malformed fields and unexpected exits still fail. Only
+deliberate termination calibration case 1 may exit 1; this is not a general
+nonzero-exit exemption. Offline NIC/QEMU arguments are unchanged. No measurement
+is published until all **81 processes**, capacities, guard/leak/peak assertions
+and static-frame checks complete. The repaired gate and new mocks are unexecuted;
+no fresh resource-fit or production-failure classification is claimed.
+
+## Approved 8 KiB FTP increment — historical measured state
 
 The user approved **8192 bytes total FTP C heap**, formerly 2048 (+6144),
 including collected static `.heap[.*]` inputs. Only the FTP linker reserve and
@@ -51,7 +77,10 @@ full boot/FTP acceptance remain pending. **Independent review is next.**
 The authoritative link-time contract is [boot-memory-layout.md](boot-memory-layout.md)
 with `linker/bootloader.ld`: boot flash `[0,0x8000)` is **32768 bytes**;
 metadata `[0x8000,0x8800)` is not available for spill. Ordinary SRAM is
-`[0x20000000,0x2000dfc0)`, diagnostics are **64-byte NOLOAD**
+`[0x20000000,0x2000dbc0)` for boot/A/B after the startup reservation;
+continuity is **1024-byte NOLOAD** `[0x2000dbc0,0x2000dfc0)`. Standalone/FTP
+ordinary SRAM still ends at `0x2000dfc0` (FTP heap remains 8192 total).
+Diagnostics are **64-byte NOLOAD**
 `[0x2000dfc0,0x2000e000)`, and stack is **8192-byte NOLOAD**
 `[0x2000e000,0x20010000)`. Startup copies only `.data` and zeroes only `.bss`.
 Dynamic production `_sbrk` begins at `_heap_static_end` and ends at `_heap_end`.

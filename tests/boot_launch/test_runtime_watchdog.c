@@ -307,7 +307,12 @@ static void put32(uint8_t *p, uint32_t value)
 {
     for (unsigned i = 0u; i < 4u; ++i) p[i] = (uint8_t)(value >> (8u * i));
 }
-/* kind 0=current, 1=READY candidate, 2=current+previous, 3=TRIAL candidate. */
+/* Each helper declaration below owns a distinct block-static fixture to avoid
+ * oversized inlined host stack frames. prepare() resets the full object and
+ * rebinds its pointers before each use; baseline and trial never share storage.
+ * Array-bound sanitizer coverage remains; fixture stack-lifetime diagnostics
+ * (use-after-scope/return) are intentionally no longer available.
+ * kind 0=current, 1=READY candidate, 2=current+previous, 3=TRIAL candidate. */
 static void prepare(fixture_t *f, unsigned current, unsigned page,
                     unsigned kind, unsigned mode)
 {
@@ -394,7 +399,7 @@ static void single(void)
     for (unsigned page = 0u; page < 2u; ++page)
     for (unsigned mode = 0u; mode < 2u; ++mode)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         unsigned chunks, feeds;
         prepare(&f, slot, page, 0u, mode);
@@ -428,7 +433,7 @@ static void single(void)
 }
 static void preflight(void)
 {
-    fixture_t f;
+    static fixture_t f;
     boot_runtime_watchdog_result_t r;
     for (unsigned bad = 0u; bad < 8u; ++bad)
     {
@@ -467,7 +472,7 @@ static void structural(void)
 {
     for (unsigned bad = 0u; bad < 12u; ++bad)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u);
         if (bad == 7u) f.registers.read = NULL;
@@ -498,7 +503,7 @@ static void multistream(void)
     for (unsigned kind = 1u; kind < 3u; ++kind)
     for (unsigned signature = 0u; signature < 2u; ++signature)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         unsigned invalid = kind == 1u ? 1u-slot : slot;
         unsigned selected = 1u-invalid;
@@ -527,7 +532,7 @@ static void failures(void)
     for (unsigned slot = 0u; slot < 2u; ++slot)
     for (unsigned error = 0u; error < 5u; ++error)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         boot_verify_result_t expected = BOOT_VERIFY_ERROR_READ;
         unsigned feeds = 1u;
@@ -555,7 +560,7 @@ static void failures(void)
         duplicate(&f);
     }
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u);
         f.w.epoch = UINT32_MAX - 1u;
@@ -577,7 +582,7 @@ static void failures(void)
     /* The final legal ID is usable; only the subsequent BEGIN fails closed. */
     for (unsigned fallback = 0u; fallback < 2u; ++fallback)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 1u, fallback ? 2u : 0u, 0u);
         f.w.verification = UINT32_MAX - 1u;
@@ -594,7 +599,7 @@ static void failures(void)
     }
 #ifdef BOOT_VERIFY_FAULT_INJECTION
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 2u, 0u);
         fail_allocation = 1; r = run(&f.c); fail_allocation = 0;
@@ -618,7 +623,7 @@ static void wdt_faults(void)
     for (unsigned cut = 1u; cut <= 18u; ++cut)
     for (unsigned after = 0u; after < 2u; ++after)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         unsigned prior = stream * 18u, local = (cut - 1u) % 9u + 1u;
         unsigned feeds = stream * 2u + (cut > 9u ? 1u : 0u);
@@ -653,7 +658,7 @@ static void wdt_faults(void)
         duplicate(&f);
     }
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u);
         f.c.cut = 6u; f.c.after = 1u; f.c.persistent = 1u;
@@ -664,7 +669,7 @@ static void wdt_faults(void)
     }
     for (unsigned n = 0u; n < 5u; ++n)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u);
         f.c.corrupt = addresses[n == 4u ? 6u : n];
@@ -683,7 +688,7 @@ static void ready_auth_failure(void)
     for (unsigned cut = 1u; cut <= 9u; ++cut)
     for (unsigned after = 0u; after < 2u; ++after)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         unsigned candidate = 1u - slot;
         prepare(&f, slot, page, 1u, 0u);
@@ -711,7 +716,7 @@ static void reset_and_uncertain(void)
 {
     for (unsigned cut = 1u; cut <= 3u; ++cut)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u); f.c.reg_cut = cut;
         f.w.evidence = 1u; /* Hostile preexisting evidence must not survive adoption. */
@@ -726,7 +731,7 @@ static void reset_and_uncertain(void)
     for (unsigned page = 0u; page < 2u; ++page)
     for (unsigned kind = 1u; kind <= 3u; ++kind)
     {
-        fixture_t baseline;
+        static fixture_t baseline;
         size_t commit;
         unsigned feeds;
         prepare(&baseline, slot, page, kind, 0u);
@@ -738,7 +743,7 @@ static void reset_and_uncertain(void)
         for (size_t offset = 0u; offset < 4u; ++offset)
         for (unsigned after = 0u; after < 2u; ++after)
         {
-            fixture_t f;
+            static fixture_t f;
             boot_runtime_watchdog_result_t r;
             prepare(&f, slot, page, kind, 0u);
             if (kind == 2u) f.c.payload[slot][20] ^= 1u;
@@ -772,7 +777,7 @@ static void reset_and_uncertain(void)
 }
 static void snapshots_and_aliases(void)
 {
-    fixture_t f;
+    static fixture_t f;
     boot_runtime_watchdog_result_t r;
     prepare(&f, 0u, 0u, 1u, 0u); f.c.mutate = 1u;
     r = run(&f.c);
@@ -860,7 +865,7 @@ static void launch_success(void)
     for (unsigned role = 0u; role < 6u; ++role)
     for (unsigned mode = 0u; mode < 2u; ++mode)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         unsigned kind = role < 4u ? role : role == 4u ? 1u : 3u;
         unsigned selected = role == 1u || role == 2u || role == 3u || role == 5u ? 1u-slot : slot;
@@ -906,7 +911,7 @@ static void launch_handoff_faults(void)
     for (unsigned cut = 1u; cut <= 12u; ++cut)
     for (unsigned after = 0u; after < 2u; ++after)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         boot_store_snapshot_t authority;
         prepare(&f, slot, page, 1u, 0u); enable_launch(&f);
@@ -939,7 +944,7 @@ static void launch_stops(void)
 {
     for (unsigned error = 0u; error < 9u; ++error)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u); enable_launch(&f);
         if (error < 3u) f.c.reg_cut = error + 1u;
@@ -967,7 +972,7 @@ static void launch_stops(void)
     }
     for (unsigned kind = 1u; kind <= 3u; ++kind)
     {
-        fixture_t baseline;
+        static fixture_t baseline;
         size_t commit;
         prepare(&baseline, 0u, 0u, kind, 0u); enable_launch(&baseline);
         if (kind == 2u)
@@ -981,7 +986,7 @@ static void launch_stops(void)
         for (unsigned after = 0u; after < 2u; ++after)
         for (size_t offset = 0u; offset < 4u; ++offset)
         {
-            fixture_t f;
+            static fixture_t f;
             boot_runtime_watchdog_result_t r;
             boot_store_snapshot_t authority;
             prepare(&f, 0u, 0u, kind, 0u); enable_launch(&f);
@@ -1006,7 +1011,7 @@ static void launch_preflight(void)
 {
     for (unsigned bad = 0u; bad < 11u; ++bad)
     {
-        fixture_t f;
+        static fixture_t f;
         boot_runtime_watchdog_result_t r;
         prepare(&f, 0u, 0u, 0u, 0u); enable_launch(&f);
         if (bad == 2u) f.handoff.io.operation = NULL;
@@ -1038,7 +1043,7 @@ static void launch_aliases(void)
 {
     for (unsigned alias = 0u; alias < 9u; ++alias)
     {
-        fixture_t f;
+        static fixture_t f;
         union {
             boot_runtime_watchdog_t bridge;
             boot_watchdog_t watchdog;
@@ -1086,8 +1091,10 @@ static void launch_aliases(void)
         duplicate(&f);
     }
 }
+#include "startup_seam.h"
 int main(void)
 {
+    startup_return_seam();
     launch_aliases(); launch_preflight(); launch_success(); launch_handoff_faults(); launch_stops();
     preflight(); structural(); single(); multistream(); failures(); wdt_faults();
     ready_auth_failure(); reset_and_uncertain(); snapshots_and_aliases();

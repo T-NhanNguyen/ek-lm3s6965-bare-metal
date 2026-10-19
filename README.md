@@ -16,6 +16,14 @@ repository rebuilds that layer from the datasheet.
 
 ---
 
+## Find a feature or test
+
+Start with the [feature and test index](tests/README.md). It separates the
+bare-metal and FreeRTOS examples, Ethernet diagnostics and lwIP FTP, offline HOST
+tests, current boot owner gates, and focused historical diagnostics. These are
+entry points by topic, not a list to run in order. See [script documentation](scripts/README.md)
+for source-only boot fingerprints and explicit optional tool hashes.
+
 ## Required packages
 
 The project verified all versions in this table on macOS 26.6 (arm64).

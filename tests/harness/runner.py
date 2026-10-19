@@ -179,7 +179,7 @@ class Run:
         roster = json.loads(raw[raw.index("{"):])["tests"]
         if (len(roster) != len(ALL_CASES["ctest"]) or
                 {t["name"] for t in roster} != set(ALL_CASES["ctest"])):
-            raise Invalid("CTest roster mismatch against explicit35 manifest")
+            raise Invalid("CTest roster mismatch against explicit37 manifest")
         for test in roster:
             if not test.get("command") or not Path(test["command"][0]).is_file():
                 raise Invalid("unreachable CTest command: " + test["name"])
@@ -227,8 +227,8 @@ class Run:
                 raise Invalid("Python method did not produce one-case evidence")
             if re.search(r"OK \(skipped=|\.\.\. skipped ", text):
                 raise Invalid("Python method skipped")
-        if re.search(r"FileNotFoundError|ModuleNotFoundError|No such file or directory|NOT_BUILT|Unable to find executable", text):
-            raise Invalid("missing fixture/tool during " + name + "; see run.log")
+        if re.search(r"STARTUP INFRASTRUCTURE:|FileNotFoundError|ModuleNotFoundError|No such file or directory|NOT_BUILT|Unable to find executable", text):
+            raise Invalid("infrastructure failure during " + name + "; see run.log")
         if identity() != self.initial:
             raise Invalid("source/worktree drift during case")
         if target == "ctest" and case == "boot_pc_workflow" and rc == 0:
@@ -298,8 +298,8 @@ def main():
         parser.error("budget must be positive and at most900 seconds")
     if len(set(selected)) != len(selected) or any(n not in roster for n in selected):
         parser.error("duplicate or unknown case; see manifest.json")
-    if len(roster) != 54 or len(set(roster)) != 54 or any(len(row) != 3 or not all(row) for rows in DATA["targets"].values() for row in rows):
-        parser.error("invalid54-case intent manifest")
+    if len(roster) != 56 or len(set(roster)) != 56 or any(len(row) != 3 or not all(row) for rows in DATA["targets"].values() for row in rows):
+        parser.error("invalid56-case intent manifest")
     # Before artifact creation: never put verbose logs in an unignored directory.
     if subprocess.run(["git", "check-ignore", "-q", ".dev-vault/"], cwd=ROOT).returncode:
         parser.error(".dev-vault/ must be gitignored")

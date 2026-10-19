@@ -62,8 +62,22 @@ typedef struct
 /* All inputs must cover stated spans; output must not overlap inputs/contexts.
  * Only first 160 bytes are inspected; reserve tails are deliberately ignored.
  * expected_slot is trusted physical slot/permitted destination, A or B.
- * Fixed demo SEC1 trust root only; no uploaded keys. Outputs unchanged on any
- * failure (including cancellation); callbacks must not modify output.
+ * One immutable build-selected SEC1 P-256 PUBLIC trust root; no runtime keys.
+ * Default builds use explicitly NONPRODUCTION demo trust. Production requires
+ * LM3S6965_BOOT_PHYSICAL_PRODUCTION=ON and an explicit
+ * LM3S6965_BOOT_PUBLIC_KEY_FILE (exactly 65 raw uncompressed SEC1 PUBLIC bytes).
+ * Production requires an out-of-source build directory; generated PUBLIC
+ * material stays there. CMake rejects missing/malformed/off-curve/demo roots
+ * and prints the selected public SHA256 fingerprint; provenance and
+ * authorization remain external.
+ * Consumers link boot_crypto (which exports lm3s6965_boot_trust_root), or apply
+ * that root target's usage requirements when supplying crypto separately.
+ * Production compilation without its generated public header fails closed;
+ * it never includes/falls back to demo trust. Root selection does not enable
+ * physical startup or establish deployment permission, protected boot closure,
+ * board/clock identity or authoritative metadata: those remain prerequisites.
+ * Outputs unchanged on any failure (including cancellation); callbacks must
+ * not modify output.
  * FORMAT includes decoder domain/version/size/geometry/reserved errors.
  * CRYPTO means library/resource failure, not a valid signature mismatch.
  * No anti-downgrade, metadata trust, execution, or durability claim. */

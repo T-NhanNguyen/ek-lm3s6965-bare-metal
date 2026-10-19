@@ -6,7 +6,7 @@
   "excluded": ["Debug configuration (not equivalent optimized code)", "hardware/physical timing/flash/reset", "live network peers", "production target fit"],
   "blind_spots": ["Native binary abort does not establish later embedded scenarios", "Workflow's 23 methods remain nested within one CTest; no method-level JSONL", "CTest Python internal methods/subtests are not separate rollup cases", "Mocked IO, synthetic heap, RAM flash are not physical integration"],
   "verdicts": {
-    "keep": "53 execution representatives from the54-case universe below; no assertion bodies removed",
+    "keep": "55 execution representatives from the56-case universe below; no assertion bodies removed",
     "merge": "Focused4 Debug/Release into full roster: first failing criterion 4 non-redundant. Second Python/native run into first: criterion4. ethernet:lwip into ethernet:lwip-boot: criterion4, identical RAM assertions execute before additional boot cases; standalone binary still compiled. Standalone workflow into boot_pc_workflow: criterion4",
     "drop": "Debug invocation omitted for execution cost, NOT declared semantically equivalent; Debug coverage intentionally unverified"
   },
@@ -14,6 +14,8 @@
     "ctest": [
       ["boot_dependencies", "offline dependency closure", "Reject invalid closure before mutation; preserve pinned external inputs"],
       ["boot_allocator", "linked allocator boundaries", "Exact break/error and unchanged break on rejected growth/shrink"],
+      ["boot_startup", "startup continuity policy", "Consumable entry, provenance boundary, immutable entry epoch, publication and genuine-reset invalidation"],
+      ["boot_startup_target", "signed ARM startup continuity", "20 fresh QEMU cases across A/B and Os/Og; real C initialization, original watchdog zero startup writes/feeds, ordered partial/complete service and pre-C clock rejection"],
       ["boot_receive", "receive transaction", "Exact framing, durable state, blocked diagnostics; no forbidden writes/reset"],
       ["boot_service", "status and confirmation", "Exact response/state; duplicate confirmation performs no metadata write"],
       ["boot_pc_workflow", "scripted client reconciliation", "Exact workflow states/calls; no unauthorized upload/confirmation across existing23 methods"],

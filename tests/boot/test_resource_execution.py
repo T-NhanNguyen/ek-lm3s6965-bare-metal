@@ -9,6 +9,8 @@ import tempfile
 import unittest
 
 from resource_probe.check import inspect, check_map, require
+from resource_probe.evidence import CommandEvidence
+from qemu_output import NIC_WARNING
 import test_layout
 
 ROOT = test_layout.ROOT
@@ -18,9 +20,11 @@ ERRORS = [0, 0, 0, 0, 2, 4, 8, 9, 6, 7, 5]
 
 def parse(text, returncode, case, old_ftp_2k=False):
     require(len(text) < 8192, "oversized emulator output")
-    lines = text.strip().splitlines()
-    # No ignored crash/warning text or duplicate/missing reports.
-    require(len(lines) == 1 and lines[0].startswith("RESOURCE "), "missing/extra report")
+    # Same exact offline NIC prefix as startup; no generic warning stripping.
+    report = text.removeprefix(NIC_WARNING)
+    lines = report.splitlines()
+    require(report.endswith("\n") and "\r" not in report and len(lines) == 1
+            and lines[0].startswith("RESOURCE "), "missing/extra report")
     words = lines[0][9:].split()
     require(all(re.fullmatch(r"[a-z_]+=[0-9]{1,10}", w) for w in words), "malformed report")
     result = dict(w.split("=") for w in words)
@@ -57,20 +61,25 @@ def parse(text, returncode, case, old_ftp_2k=False):
     return r
 
 
-def execute(qemu, elf, case, old_ftp_2k):
+def execute(qemu, elf, case, old_ftp_2k, evidence=None):
+    evidence = evidence or CommandEvidence(tempfile.mkdtemp(prefix="resource-command-", dir="/tmp"))
     try:
-        p = subprocess.run([qemu, "-M", "lm3s6965evb", "-nographic", "-monitor", "none",
-                            "-serial", "none", "--semihosting-config",
-                            f"enable=on,target=native,arg={case}", "-kernel", str(elf)],
-                           capture_output=True, text=True, timeout=20)
-    except subprocess.TimeoutExpired as error:
-        raise ValueError(f"QEMU timeout (case {case})") from error
+        p = evidence.run([qemu, "-M", "lm3s6965evb", "-nographic", "-monitor", "none",
+                          "-serial", "none", "--semihosting-config",
+                          f"enable=on,target=native,arg={case}", "-kernel", str(elf)],
+                         f"{elf.name}-case-{case}", timeout=20, check=False)
+    except ValueError as error:
+        if isinstance(error.__cause__, subprocess.TimeoutExpired):
+            raise ValueError(f"QEMU timeout (case {case}); evidence: {evidence.directory}") from error
+        raise
+    # Exit 1 is allowed ONLY for the deliberate termination calibration; parse
+    # validates both the real process exit and the report's status field.
     return parse(p.stdout + p.stderr, p.returncode, case, old_ftp_2k)
 
 
-def disassembly_gate(gcc, elf):
-    objdump = subprocess.check_output([gcc, "-print-prog-name=objdump"], text=True).strip()
-    text = subprocess.check_output([objdump, "-d", str(elf)], text=True)
+def disassembly_gate(gcc, elf, evidence):
+    objdump = evidence.run([gcc, "-print-prog-name=objdump"], "objdump-path").stdout.strip()
+    text = evidence.run([objdump, "-d", str(elf)], elf.name + "-disassembly").stdout
     def body(name):
         match = re.search(r"<" + name + r">:\n(.*?)(?=\n\n)", text, re.S)
         require(match is not None, "missing disassembly: " + name)
@@ -89,9 +98,9 @@ def disassembly_gate(gcc, elf):
     return text
 
 
-def instrumentation_ram(gcc, elf):
-    nm = subprocess.check_output([gcc, "-print-prog-name=nm"], text=True).strip()
-    text = subprocess.check_output([nm, "-S", str(elf)], text=True)
+def instrumentation_ram(gcc, elf, evidence):
+    nm = evidence.run([gcc, "-print-prog-name=nm"], "nm-path").stdout.strip()
+    text = evidence.run([nm, "-S", str(elf)], elf.name + "-symbols").stdout
     names = set("slots command report live peak count count_peak calls failed sbrk_failed backing_peak failed_increment tracking_error inject used".split())
     sizes = {}
     for line in text.splitlines():
@@ -142,8 +151,18 @@ class ParserTests(unittest.TestCase):
                 parse(bad, code, 0)
 
 
-def gate(build, qemu, gcc):
+def gate(build, qemu, gcc, evidence):
     reports = {}
+    # Snapshot measurement inputs before validation. In particular .su files
+    # and malformed/missing-frame diagnostics must survive a first-case failure.
+    inputs = evidence.directory / "inputs"
+    for path in sorted(build.rglob("*")):
+        if path.is_file() and (path.suffix in (".su", ".map") or
+                               path.name in ("resource_probe", "resource_boot_execution",
+                                             "resource_ftp_execution", "resource_old_ftp_2k_execution")):
+            target = inputs / path.relative_to(build)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
     baseline = inspect((build / "resource_probe").read_bytes())
     check_map((build / "resource_probe.map").read_text())
     for kind in ("boot", "ftp", "old_ftp_2k"):
@@ -151,20 +170,25 @@ def gate(build, qemu, gcc):
         artifact = inspect(elf.read_bytes(), execution=True, ftp=kind != "boot",
                            old_ftp_2k=kind == "old_ftp_2k")
         check_map(elf.with_suffix(".map").read_text(), ftp=kind != "boot")
-        disassembly_gate(gcc, elf)
-        metadata = instrumentation_ram(gcc, elf)
+        disassembly_gate(gcc, elf, evidence)
+        metadata = instrumentation_ram(gcc, elf, evidence)
         frames = []
+        frame_evidence = []
         for path in build.rglob("*.su"):
             if "boot_crypto.dir" in str(path) or f"resource_{kind}_execution.dir" in str(path):
                 for line in path.read_text().splitlines():
                     name, size, mode = line.rsplit("\t", 2)
                     require(mode == "static", "non-static source frame: " + name)
                     frames.append(int(size))
+                    frame_evidence.append({"path": str(path.relative_to(build)),
+                                           "name": name, "bytes": int(size), "mode": mode})
+        (evidence.directory / (kind + "-frames.json")).write_text(
+            json.dumps(frame_evidence, indent=2) + "\n")
         require(frames, "missing source static frames")
         source_frame_allowance = max(frames)
         # Calibrate actual reporting/exit, stack painting, and accounting BEFORE crypto.
-        calibration = [execute(qemu, elf, i, kind == "old_ftp_2k") for i in range(3)]
-        cases = [execute(qemu, elf, i, kind == "old_ftp_2k") for i in range(3, 27)]
+        calibration = [execute(qemu, elf, i, kind == "old_ftp_2k", evidence) for i in range(3)]
+        cases = [execute(qemu, elf, i, kind == "old_ftp_2k", evidence) for i in range(3, 27)]
         capacity = 2048 if kind == "old_ftp_2k" else (8192 if kind == "ftp" else artifact["heap_capacity"])
         require(all(r["capacity"] == capacity for r in calibration + cases), "wrong execution capacity")
         if kind != "old_ftp_2k":
@@ -179,6 +203,7 @@ def gate(build, qemu, gcc):
         reports[kind] = {"artifact": artifact, "calibration": calibration, "cases": cases,
                          "instrumentation_ram": metadata,
                          "source_frame_allowance": source_frame_allowance,
+                         "source_frames": frame_evidence,
                          "flash_delta": artifact["flash_end"] - baseline["flash_end"],
                          "static_ram_delta": artifact["data"] + artifact["bss"] - baseline["data"] - baseline["bss"]}
     return {"baseline": baseline, "measurements": reports}
@@ -189,7 +214,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, help="reuse an explicitly built Release execution directory")
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--evidence", type=Path, help="new retained /tmp evidence directory")
     args = parser.parse_args()
+    if args.json:
+        require(args.json.is_absolute() and args.json.resolve().is_relative_to(Path('/tmp').resolve()),
+                "raw measurement JSON must remain under /tmp")
     qemu = os.environ.get("BOOT_QEMU") or shutil.which("qemu-system-arm")
     if not qemu and Path("/opt/homebrew/bin/qemu-system-arm").exists():
         qemu = "/opt/homebrew/bin/qemu-system-arm"
@@ -199,21 +228,33 @@ if __name__ == "__main__":
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ParserTests)
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
         raise SystemExit(1)
-    test_layout.LayoutTests.setUpClass()
-    try:
-        print(subprocess.check_output([qemu, "--version"], text=True).splitlines()[0], flush=True)
-        with tempfile.TemporaryDirectory(prefix="boot-execution-") as directory:
-            build = args.build or Path(directory)
-            if not args.build:
-                subprocess.run(["cmake", "-S", str(ROOT / "tests/boot/resource_probe"), "-B", str(build),
-                                "-DCMAKE_TOOLCHAIN_FILE=" + str(ROOT / "cmake/toolchain-lm3s6965.cmake"),
-                                "-DCMAKE_C_COMPILER=" + test_layout.LayoutTests.gcc,
-                                "-DCMAKE_BUILD_TYPE=Release", "-DRESOURCE_EXECUTION=ON"], check=True, timeout=30)
-                subprocess.run(["cmake", "--build", str(build), "--parallel", "8"], check=True, timeout=60)
-            result = gate(build, qemu, test_layout.LayoutTests.gcc)
-            text = json.dumps(result, indent=2)
-            if args.json:
-                args.json.write_text(text + "\n")
-            print(text, flush=True)
-    finally:
-        test_layout.LayoutTests.tearDownClass()
+    candidates = sorted((Path.home() / ".toolchains").glob(
+        "arm-gnu-toolchain-*-darwin-arm64-arm-none-eabi/bin/arm-none-eabi-gcc"))
+    candidates += sorted(Path("/Applications/ArmGNUToolchain").glob(
+        "*/arm-none-eabi/bin/arm-none-eabi-gcc"))
+    gcc = os.environ.get("BOOT_ARM_GCC") or (str(candidates[-1]) if candidates else
+                                            shutil.which("arm-none-eabi-gcc"))
+    require(gcc, "GNU Arm compiler required for resource execution")
+    directory = args.evidence or Path(tempfile.mkdtemp(prefix="boot-resource-execution-", dir="/tmp"))
+    if args.evidence:
+        require(directory.is_absolute() and directory.resolve().is_relative_to(Path("/tmp").resolve())
+                and not directory.exists(), "evidence must be a new /tmp directory")
+    evidence = CommandEvidence(directory)
+    print("Retained resource evidence: " + str(directory), flush=True)
+    build = args.build or directory / "build"
+    print(evidence.run([qemu, "--version"], "qemu-version").stdout.splitlines()[0], flush=True)
+    evidence.run([gcc, "--version"], "compiler-version")
+    if not args.build:
+        evidence.run(["cmake", "-S", ROOT / "tests/boot/resource_probe", "-B", build,
+                      "-DCMAKE_TOOLCHAIN_FILE=" + str(ROOT / "cmake/toolchain-lm3s6965.cmake"),
+                      "-DCMAKE_C_COMPILER=" + gcc, "-DCMAKE_BUILD_TYPE=Release",
+                      "-DRESOURCE_EXECUTION=ON"], "configure", timeout=30)
+        evidence.run(["cmake", "--build", build, "--parallel", "8"], "build", timeout=60)
+    result = gate(build, qemu, gcc, evidence)
+    text = json.dumps(result, indent=2) + "\n"
+    # No complete measurement artifact is published unless all 3 x 27 cases,
+    # static-frame, capacity, leak, peak and guard assertions have passed.
+    (directory / "measurements.json").write_text(text)
+    if args.json:
+        args.json.write_text(text)
+    print(text, flush=True)

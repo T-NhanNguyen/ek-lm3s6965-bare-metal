@@ -14,6 +14,10 @@ void __libc_init_array(void);
 
 void Reset_Handler(void);
 void Default_Handler(void);
+#if defined(LM3S6965_APPLICATION_CONTINUITY)
+#include "lm3s6965/boot_startup.h"
+void Application_Reset_Handler(void);
+#endif
 
 #if defined(LM3S6965_FTP_STACK_MEASUREMENT)
 /* Only the separately compiled FTP startup enables this reset-vector shim.
@@ -98,7 +102,9 @@ __attribute__((section(".isr_vector"), used))
 const interrupt_handler_t g_interrupt_vector_table[LM3S6965_VECTOR_TABLE_ENTRIES] =
 {
     (interrupt_handler_t)&_estack,   /* 0x00 initial main stack pointer */
-#if defined(LM3S6965_FTP_STACK_MEASUREMENT)
+#if defined(LM3S6965_APPLICATION_CONTINUITY)
+    Application_Reset_Handler,
+#elif defined(LM3S6965_FTP_STACK_MEASUREMENT)
     FTP_Stack_Reset_Handler,         /* 0x04 reset-only stack painter */
 #else
     Reset_Handler,                   /* 0x04 */
@@ -183,16 +189,34 @@ void Reset_Handler(void)
 
     __libc_init_array();
 
+    /* Continuity caller marks C_READY only after its bounded app init. No
+     * synthetic WDT progress or health from merely reaching the C runtime. */
     (void)main();
+#if defined(LM3S6965_APPLICATION_CONTINUITY)
+    boot_startup_continuity.state = BOOT_STARTUP_FAILED;
+    boot_startup_stop();
+#endif
 
     for (;;)
     {
     }
 }
 
+#if defined(LM3S6965_APPLICATION_CONTINUITY)
+/* Early faults/NMI may arrive before C initialization. Retained-only stores,
+ * no prologue, app BSS, library, feed or return. FAILED invalidates availability. */
+__attribute__((naked)) void Default_Handler(void)
+{
+    __asm__("ldr r0, =boot_startup_continuity\n"
+            "movs r1, #5\n"
+            "str r1, [r0, #16]\n"
+            "b boot_startup_stop\n");
+}
+#else
 void Default_Handler(void)
 {
     for (;;)
     {
     }
 }
+#endif

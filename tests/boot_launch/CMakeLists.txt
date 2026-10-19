@@ -61,7 +61,7 @@ foreach(variant IN ITEMS "" "_fault")
     endif()
     add_executable(test_runtime_watchdog${variant} test_runtime_watchdog.c ../boot/flash_model.c)
     target_include_directories(test_runtime_watchdog${variant} PRIVATE ../boot)
-    target_link_libraries(test_runtime_watchdog${variant} PRIVATE boot_runtime_watchdog${variant})
+    target_link_libraries(test_runtime_watchdog${variant} PRIVATE boot_runtime_watchdog${variant} boot_startup)
     target_compile_options(test_runtime_watchdog${variant} PRIVATE
         -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
         -Wshadow -Wstrict-prototypes -Wmissing-prototypes)

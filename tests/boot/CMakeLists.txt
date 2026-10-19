@@ -134,6 +134,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
     target_compile_options(boot_runtime_watchdog PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
 endif()
+add_library(boot_startup STATIC ../../src/boot_startup.c)
+target_link_libraries(boot_startup PUBLIC boot_handoff boot_diag_publication)
+target_compile_options(boot_startup PRIVATE -fno-short-enums -Wall -Wextra -Werror -Wpedantic
+    -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 # HOST service API stays separate from the synchronous RAM FTP backend.
 add_library(boot_service STATIC ../../src/boot_service.c)
 target_link_libraries(boot_service PUBLIC boot_snapshot boot_lifecycle)
@@ -168,6 +172,43 @@ if(CMAKE_CROSSCOMPILING)
     return()
 endif()
 enable_testing()
+
+# FIRST shared sequence gate: observation-only TU copies; production files unchanged.
+add_library(sequence_probe OBJECT ../../src/boot_sequence.c)
+target_include_directories(sequence_probe PRIVATE ../../include)
+target_compile_definitions(sequence_probe PRIVATE boot_runtime_watchdog_run=sequence_observe_runtime)
+add_library(sequence_producer_probe OBJECT ../../src/boot_startup_producer.c)
+target_include_directories(sequence_producer_probe PRIVATE ../../include)
+target_compile_definitions(sequence_producer_probe PRIVATE boot_watchdog_configure=sequence_observe_configure)
+add_executable(test_sequence sequence_host.c flash_model.c
+    ../../src/boot_watchdog_target.c ../../src/boot_startup_gptm.c
+    $<TARGET_OBJECTS:sequence_probe> $<TARGET_OBJECTS:sequence_producer_probe>)
+target_link_libraries(test_sequence PRIVATE boot_startup boot_runtime_watchdog)
+foreach(target IN ITEMS sequence_probe sequence_producer_probe test_sequence)
+    target_compile_options(${target} PRIVATE -UNDEBUG -Wall -Wextra -Werror -fno-short-enums)
+    if(BOOT_SANITIZERS)
+        target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    endif()
+endforeach()
+if(BOOT_SANITIZERS)
+    target_link_options(test_sequence PRIVATE -fsanitize=address,undefined)
+endif()
+
+# Bounded producer fixtures: no production API interposition or QEMU.
+add_library(producer_probe OBJECT ../../src/boot_startup_producer.c)
+target_include_directories(producer_probe PRIVATE ../../include)
+target_compile_definitions(producer_probe PRIVATE boot_watchdog_configure=producer_observe_configure)
+target_compile_options(producer_probe PRIVATE -Wall -Wextra -Werror -fno-short-enums)
+add_executable(test_producer producer_host.c ../../src/boot_watchdog_target.c
+    ../../src/boot_startup_gptm.c $<TARGET_OBJECTS:producer_probe>)
+target_link_libraries(test_producer PRIVATE boot_startup)
+target_compile_options(test_producer PRIVATE -UNDEBUG -Wall -Wextra -Werror -fno-short-enums)
+if(BOOT_SANITIZERS)
+    target_compile_options(producer_probe PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_compile_options(test_producer PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+    target_link_options(test_producer PRIVATE -fsanitize=address,undefined)
+endif()
+# Logical roster and JSONL/artifacts belong to this single runner, not CTest discovery.
 enable_language(ASM)
 find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
 add_test(NAME boot_dependencies COMMAND ${Python3_EXECUTABLE}
@@ -219,6 +260,14 @@ endforeach()
 add_test(NAME boot_allocator COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test_sbrk_linked.py --cc ${CMAKE_C_COMPILER}
     --sanitizers ${BOOT_SANITIZERS} ${SBRK_PROGRAMS})
+add_executable(test_startup test_startup.c)
+target_link_libraries(test_startup PRIVATE boot_startup)
+target_compile_options(test_startup PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic)
+add_test(NAME boot_startup COMMAND test_startup)
+add_test(NAME boot_startup_target COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_startup_target.py)
+set_tests_properties(boot_startup_target PROPERTIES TIMEOUT 180
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 add_executable(test_receive test_receive.c)
 target_link_libraries(test_receive PRIVATE boot_receive boot_watchdog)
 target_compile_options(test_receive PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
@@ -362,11 +411,11 @@ foreach(target IN ITEMS boot_receive_fault test_receive_fault)
 endforeach()
 add_test(NAME boot_receive_fault COMMAND test_receive_fault)
 if(BOOT_SANITIZERS)
-    foreach(target IN ITEMS ftp_boot ftp_boot_fixture boot_receive_fault test_receive_fault boot_receive test_receive boot_service test_service boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
+    foreach(target IN ITEMS boot_startup test_startup ftp_boot ftp_boot_fixture boot_receive_fault test_receive_fault boot_receive test_receive boot_service test_service boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
                             boot_crypto_fault boot_verify_fault test_verify_fault package_verify)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endforeach()
-    foreach(target IN ITEMS test_receive_fault test_receive test_service test_handoff test_watchdog test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
+    foreach(target IN ITEMS test_startup test_receive_fault test_receive test_service test_handoff test_watchdog test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()
 endif()

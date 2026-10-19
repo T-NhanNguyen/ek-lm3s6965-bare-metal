@@ -1,5 +1,9 @@
 include_guard(GLOBAL)
 
+# Shared with root builds and standalone verifier consumers. Production root
+# definitions/includes follow the existing crypto usage requirements.
+include("${CMAKE_CURRENT_LIST_DIR}/boot_trust_root.cmake")
+
 # Consume only the verified local release; no upstream CMake, downloads,
 # generated files, source patches, or global warning/configuration changes.
 get_filename_component(BOOT_CRYPTO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -15,10 +19,13 @@ foreach(module IN LISTS BOOT_CRYPTO_MODULES)
     list(APPEND BOOT_CRYPTO_SOURCES "${BOOT_MBEDTLS_DIR}/library/${module}.c")
 endforeach()
 add_library(boot_crypto STATIC ${BOOT_CRYPTO_SOURCES})
+target_link_libraries(boot_crypto PUBLIC lm3s6965_boot_trust_root)
 target_include_directories(boot_crypto SYSTEM PUBLIC "${BOOT_MBEDTLS_DIR}/include")
 target_include_directories(boot_crypto PUBLIC "${BOOT_CRYPTO_ROOT}/config")
 target_compile_definitions(boot_crypto PUBLIC MBEDTLS_CONFIG_FILE="mbedtls_boot.h")
 target_compile_features(boot_crypto PUBLIC c_std_11)
+# Match the boot archive ABI, including standalone verifier consumers.
+target_compile_options(boot_crypto PUBLIC -fno-short-enums)
 # Upstream warnings are intentionally separate from strict project-owned tests.
 target_compile_options(boot_crypto PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
 if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")

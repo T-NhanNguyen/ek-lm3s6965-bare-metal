@@ -1,9 +1,10 @@
 # Boot target link-time memory layout
 
 This document covers **link-time reservations, artifact contracts and bounded
-`_sbrk` backing**. These increments do not integrate a bootloader, change
-Reset_Handler, implement live diagnostic publication, or establish target
-runtime resource/timing acceptance.
+`_sbrk` backing**. The opt-in [startup continuity boundary](boot-startup.md)
+adds a signed slot-entry variant with real C initialization; the default startup
+and RAM-only FTP example remain unchanged. No production updater, physical
+clock/watchdog binding or target runtime resource/timing acceptance is implied.
 The partition map remains the approved provisional bench map.
 
 ## Approved FTP capacity increment
@@ -72,7 +73,7 @@ All five scripts support only the explicitly matched allocated input sections:
 | `.bss*`, COMMON | SRAM zeroed only in `[_sbss, _ebss)` |
 | `.heap[.*]` | Explicit static heap storage in NOLOAD `.c_heap`; not copied/zeroed by startup |
 
-Diagnostic and stack output sections are linker-created NOLOAD reservations,
+Continuity (boot/A/B only), diagnostic and stack output sections are linker-created NOLOAD reservations,
 not permission to supply arbitrary allocated inputs with those names. The new
 boot/slot scripts additionally reject manifest/metadata inputs with their
 existing specific diagnostic.
@@ -116,11 +117,14 @@ backing is bounded separately as described below.
 
 ## SRAM and startup symbols
 
-All five scripts split SRAM into these disjoint regions:
+Bootloader/A/B scripts now reserve continuity; standalone/generic and standalone
+FTP scripts retain their prior ownership (they must not link the new entry path):
 
 | Ownership | Half-open interval |
 | --- | --- |
-| Ordinary `.data`, `.bss`, static heap and remaining dynamic capacity | `[0x20000000, 0x2000DFC0)` |
+| Boot/A/B ordinary `.data`, `.bss`, static heap and dynamic capacity | `[0x20000000, 0x2000DBC0)` |
+| Boot/A/B `.boot_continuity`, 1024 bytes, **NOLOAD / SHT_NOBITS** | `[0x2000DBC0, 0x2000DFC0)` |
+| Standalone ordinary SRAM (FTP heap separately fixed at 8192 total) | `[0x20000000, 0x2000DFC0)` |
 | `.boot_diagnostic`, 64 bytes, **NOLOAD / SHT_NOBITS** | `[0x2000DFC0, 0x2000E000)` |
 | `.stack`, 8192 bytes, **NOLOAD / SHT_NOBITS** | `[0x2000E000, 0x20010000)` |
 
@@ -128,8 +132,9 @@ All five scripts split SRAM into these disjoint regions:
   range. `_sbss`/`_ebss` delimit only the `.bss` zero range.
 - `_end` and `_heap_start` identify the aligned lower-SRAM heap base.
   `.heap`/`.heap.*` test/static heap inputs are NOLOAD in `.c_heap`;
-  `_heap_static_end` identifies their end. Generic/boot/slot `_heap_end` is
-  `0x2000DFC0`, preserving all remaining lower-SRAM dynamic capacity rather than
+  `_heap_static_end` identifies their end. Boot/slot `_heap_end` is
+  `_continuity_start = 0x2000DBC0`; generic standalone remains `0x2000DFC0`,
+  preserving all remaining lower-SRAM dynamic capacity rather than
   silently adopting a new 2 KiB limit. Explicit static heap inputs must be
   excluded from dynamic `_sbrk` capacity: dynamic allocation begins at
   `_heap_static_end`, never reusing their storage.
@@ -146,6 +151,14 @@ All five scripts split SRAM into these disjoint regions:
   `_flash_payload_limit`, and `_flash_payload_end` identify the flash interval
   and actual initialized-load end. Slots additionally export `_manifest_start`
   and `_manifest_end`; boot exports `_metadata_start` and `_metadata_end`.
+
+The linked allocator replay independently pins its fixture heap start to
+`0x20000040`: maximum static heap is `0xDB80` for boot/A/B, `0xDF80` for generic
+standalone, and 8192 for FTP. It replays empty/nonempty/exactly-full static heaps
+without deriving expected bounds from allocator or ELF output. Boot/A/B also
+check the exact 1024-byte NOLOAD continuity reservation and reject an eight-byte
+static-heap spill into it. A smaller boot heap is intentional ownership, not
+permission to relax either allocator bounds or the diagnostic/stack endpoints.
 
 GNU ld assertions cannot inspect the actual first vector word. `_estack` is
 asserted exact, and the unchanged BSP startup uses that symbol, but arbitrary

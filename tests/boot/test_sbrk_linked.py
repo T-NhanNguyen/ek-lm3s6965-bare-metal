@@ -6,6 +6,7 @@ contract plus independent expected SRAM constants, not allocator output.
 """
 import argparse
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -50,16 +51,20 @@ def main():
                  "-c", ROOT / "tests/boot/sbrk_fixture.c", "-o", obj])
             # .data=16 and .bss=32 plus two allocator words and one errno word:
             # independently expected aligned heap start is 0x20000040.
-            for heap_bytes in (0, 32, 8192 if key == "ftp" else 0xdf80):
+            # Independent ownership constants, not values learned from the ELF:
+            # boot/A/B stop before continuity; standalone stops at diagnostics.
+            expected_start = 0x20000040
+            expected_end = (expected_start + 8192 if key == "ftp" else
+                            0x2000dbc0 if key in ("bootloader", "A", "B") else
+                            0x2000dfc0)
+            for heap_bytes in (0, 32, expected_end - expected_start):
                 elf = directory / "linked.elf"
                 run([*arm, "-nostdlib", "-Wl,-z,max-page-size=0x100",
                      "-T" + str(ROOT / script), "-DHEAP_BYTES=" + str(heap_bytes),
                      ROOT / "tests/boot/layout_fixture.S", obj,
                      ROOT / "tests/boot/sbrk_link_stubs.c", "-o", elf])
-                _, symbols, _ = elf_tables(elf.read_bytes())
-                expected_start = 0x20000040
+                sections, symbols, _ = elf_tables(elf.read_bytes())
                 expected_base = expected_start + heap_bytes
-                expected_end = expected_start + 8192 if key == "ftp" else 0x2000dfc0
                 expected = {"_heap_start": expected_start,
                             "_heap_static_end": expected_base, "_heap_end": expected_end,
                             "_diagnostic_start": 0x2000dfc0,
@@ -68,6 +73,15 @@ def main():
                 for symbol, address in expected.items():
                     if symbols[symbol] != address:
                         raise AssertionError((key, heap_bytes, symbol, hex(symbols[symbol]), hex(address)))
+                if key in ("bootloader", "A", "B"):
+                    for symbol, address in (("_continuity_start", 0x2000dbc0),
+                                            ("_continuity_end", 0x2000dfc0),
+                                            ("boot_startup_continuity", 0x2000dbc0)):
+                        if symbols[symbol] != address:
+                            raise AssertionError((key, symbol, symbols[symbol], address))
+                    h = sections[".boot_continuity"]
+                    if (h[1], h[3], h[5]) != (8, 0x2000dbc0, 1024):
+                        raise AssertionError((key, "continuity must be exact NOLOAD", h))
                 executable = directory / "native"
                 sanitizer = (["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
                              if args.sanitizers == "ON" else [])
@@ -79,6 +93,18 @@ def main():
                      ROOT / "tests/boot/test_sbrk.c", ROOT / "tests/boot/sbrk_fixture.c",
                      ROOT / "tests/boot/sbrk_symbols.S", "-o", executable])
                 run([executable])
+            if key in ("bootloader", "A", "B"):
+                # Filling exactly to continuity is legal; one aligned word-pair
+                # more must fail at link time, never borrow the capsule.
+                overflow = subprocess.run([str(x) for x in [*arm, "-nostdlib",
+                    "-Wl,-z,max-page-size=0x100", "-T" + str(ROOT / script),
+                    "-DHEAP_BYTES=" + str(expected_end - expected_start + 8),
+                    ROOT / "tests/boot/layout_fixture.S", obj,
+                    ROOT / "tests/boot/sbrk_link_stubs.c", "-o", elf]],
+                    capture_output=True, text=True)
+                if overflow.returncode == 0 or not re.search(
+                        r"overlaps continuity|will not fit in region .SRAM.", overflow.stderr):
+                    raise AssertionError((key, "continuity overflow not rejected", overflow))
         print("All five real linker scripts: empty/nonempty/full static heap replay passed")
 
 

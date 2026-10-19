@@ -99,10 +99,17 @@ class LayoutTests(unittest.TestCase):
             "_sbss": 0x20000010, "_ebss": 0x20000030,
             "_end": 0x20000030, "_heap_start": 0x20000030,
             "_heap_static_end": 0x20000050,
-            "_heap_end": 0x20002030 if key == "ftp" else 0x2000dfc0,
+            "_heap_end": (0x20002030 if key == "ftp" else
+                          0x2000dbc0 if key in ("bootloader", "A", "B") else 0x2000dfc0),
         }
         for symbol, value in expected.items():
             self.assertEqual(symbols[symbol], value, (key, symbol))
+        if key in ("bootloader", "A", "B"):
+            self.assertEqual(symbols["_continuity_start"], 0x2000dbc0)
+            self.assertEqual(symbols["_continuity_end"], 0x2000dfc0)
+            self.assertEqual(symbols["boot_startup_continuity"], 0x2000dbc0)
+            h = sections[".boot_continuity"]
+            self.assertEqual((h[1], h[3], h[5]), (8, 0x2000dbc0, 1024))
         if key == "bootloader":
             self.assertEqual(symbols["_metadata_start"], 0x8000)
             self.assertEqual(symbols["_metadata_end"], 0x8800)
@@ -309,6 +316,23 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(symbols["_heap_static_end"], symbols["_heap_end"])
         self.link("ftp", ["HEAP_BYTES=8200"], succeeds=False,
                   expected_error="FTP static heap exceeds fixed 8 KiB reserve")
+
+    def test_continuity_ownership_is_not_noinit_or_spare_heap(self):
+        for key in ("bootloader", "A", "B"):
+            for definition in ("DATA_BYTES=0xdbc4", "BSS_BYTES=0xdbc0", "HEAP_BYTES=0xdbc0"):
+                with self.subTest(script=key, definition=definition):
+                    self.link(key, [definition], succeeds=False,
+                              expected_error="(overlaps continuity|will not fit in region .SRAM.)")
+            for section in (".boot_continuity", ".noinit"):
+                source = self.directory / "continuity-input.S"
+                source.write_text('.syntax unified\n.thumb\n'
+                    '.section .isr_vector,"a",%progbits\n.balign 256\n'
+                    '.word 0x20010000\n.word Reset_Handler\n.space 228\n'
+                    '.text\n.global Reset_Handler\n.thumb_func\nReset_Handler:\n'
+                    'b Reset_Handler\n' + f'.section {section},"aw",%progbits\n.word 1\n')
+                with self.subTest(script=key, section=section):
+                    self.link(key, source=source, succeeds=False,
+                              expected_error="unsupported allocated input section")
 
     def test_no_manifest_metadata_load(self):
         for key in ("bootloader", "A", "B"):

@@ -9,6 +9,17 @@ It holds both object guards from admission through owned output publication.
 A private held-operation seam preserves the public transfer semantics without
 copying or releasing the watchdog. The standalone API below remains unchanged.
 
+## Separate physical startup boundary (opt-in)
+
+[boot-startup.md](boot-startup.md) provides the reusable post-return continuation:
+returning logical terminal callback → owned launch output/guards released →
+one-shot prepare → physical stackless dispatch → authenticated slot prefix →
+real C initialization. Never branch from the logical callback or replay handoff.
+The old isolated fixture below remains historical core-tail evidence; new
+independently linked A/B fixtures preserve the original in-place controller,
+publication owner and boot-resident callback context across real data/BSS init.
+Main remains RAM-only, with no production peripheral/clock/reset adapters.
+
 ## Admission and authority
 
 1. Obtain a successful `boot_verify_stored` result for the selected eligible
@@ -65,7 +76,7 @@ numbers and zero values are **not hardware write masks**. Barrier events express
 ordering intent, not exact DSB/ISB instruction, access-width or register semantics.
 No callback is authorized to switch MSP, change CONTROL/masks physically, branch
 to the application or release exclusion. Reset-like entry masks are recorded in
-intent only. A future physical implementation needs separately reviewed assembly
+intent only. The opt-in startup boundary supplies assembly; enabling a physical caller still needs review
 with no old C frame after MSP switch and no return, plus target register/barrier,
 source coverage and clock/watchdog continuity evidence.
 

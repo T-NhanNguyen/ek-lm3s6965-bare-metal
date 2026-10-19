@@ -82,8 +82,10 @@ target_link_libraries(lm3s6965_ftp_boot PUBLIC
 target_compile_options(lm3s6965_ftp_boot PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
 
-# Injected watchdog ownership/progress only; no MMIO/ISR/runtime integration.
-add_library(lm3s6965_boot_watchdog STATIC EXCLUDE_FROM_ALL boot_watchdog.c)
+# Injected watchdog ownership/progress and clock readiness; no direct MMIO,
+# ISR binding or runtime integration.
+add_library(lm3s6965_boot_watchdog STATIC EXCLUDE_FROM_ALL
+    boot_watchdog.c boot_watchdog_target.c)
 target_include_directories(lm3s6965_boot_watchdog PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 target_compile_options(lm3s6965_boot_watchdog PRIVATE
@@ -119,6 +121,51 @@ target_link_libraries(lm3s6965_boot_runtime_watchdog PUBLIC
     lm3s6965_boot_runtime lm3s6965_boot_handoff)
 target_compile_options(lm3s6965_boot_runtime_watchdog PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+# Reusable boundary and setup-only Timer2 producer; no default boot caller or
+# updater enable. Final consumers own boot-FLASH closure and entry wiring.
+enable_language(ASM)
+add_library(lm3s6965_boot_startup STATIC EXCLUDE_FROM_ALL
+    boot_startup.c boot_startup_gptm.c boot_startup_producer.c
+    boot_startup_target.c boot_startup_terminal.S)
+target_link_libraries(lm3s6965_boot_startup PUBLIC
+    lm3s6965_boot_handoff lm3s6965_boot_diag_publication)
+target_compile_options(lm3s6965_boot_startup PRIVATE ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+# Shared boot-only producer -> protected RUN decision; no physical adapters,
+# startup wiring or execution. Consumers still supply verifier/crypto closure.
+add_library(lm3s6965_boot_sequence STATIC EXCLUDE_FROM_ALL boot_sequence.c)
+target_link_libraries(lm3s6965_boot_sequence PUBLIC
+    lm3s6965_boot_startup lm3s6965_boot_runtime_watchdog)
+target_compile_options(lm3s6965_boot_sequence PRIVATE ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+# Physical descriptors only; no entry, clock configuration or default executable.
+# Final consumers still supply verifier/crypto and prove boot-FLASH closure/fit.
+add_library(lm3s6965_boot_target_io STATIC EXCLUDE_FROM_ALL boot_target_io.c)
+target_link_libraries(lm3s6965_boot_target_io PUBLIC
+    lm3s6965_boot_flash lm3s6965_boot_sequence)
+target_compile_options(lm3s6965_boot_target_io PRIVATE ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+add_library(lm3s6965_application_entry OBJECT EXCLUDE_FROM_ALL
+    startup.c boot_startup_entry.S)
+target_compile_definitions(lm3s6965_application_entry PRIVATE LM3S6965_APPLICATION_CONTINUITY)
+target_link_libraries(lm3s6965_application_entry PUBLIC lm3s6965_headers)
+target_include_directories(lm3s6965_application_entry PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+target_compile_options(lm3s6965_application_entry PRIVATE ${LM3S6965_ARCH_FLAGS})
+
+# Boot enums cross archive/API boundaries and the retained capsule1024 layout
+# requires full-width enums. Apply to dependencies themselves, not just their
+# callers, and export the same ABI to future consumers. Keep the BSP unchanged.
+foreach(target IN ITEMS
+    lm3s6965_boot_diag_publication lm3s6965_boot_snapshot
+    lm3s6965_boot_service lm3s6965_boot_flash lm3s6965_boot_receive
+    lm3s6965_ftp_boot lm3s6965_boot_watchdog lm3s6965_boot_handoff
+    lm3s6965_boot_launch lm3s6965_boot_runtime lm3s6965_boot_runtime_watchdog
+    lm3s6965_boot_startup lm3s6965_boot_sequence lm3s6965_boot_target_io
+    lm3s6965_application_entry)
+    target_compile_options(${target} PUBLIC -fno-short-enums)
+endforeach()
+# Prebuilt libc/libgcc attributes are unchanged: the exact linked runtime helper
+# signatures need a separate no-enum-crossing assessment, not warning suppression.
 
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.

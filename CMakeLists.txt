@@ -5,7 +5,14 @@ project(lm3s6965_bsp
         DESCRIPTION "Board support package for the TI/Luminary LM3S6965 (ARM Cortex-M3) evaluation board"
         LANGUAGES C)
 
+include(cmake/boot_trust_root.cmake)
+
 option(LM3S6965_BUILD_ETHERNET_FTP "Build the opt-in bare-metal lwIP FTP example" OFF)
+option(LM3S6965_FTP_FOREGROUND_OWNER
+    "Build RAM FTP slot application with inherited foreground watchdog ownership" OFF)
+if(LM3S6965_FTP_FOREGROUND_OWNER AND NOT LM3S6965_BUILD_ETHERNET_FTP)
+    message(FATAL_ERROR "Foreground FTP owner requires LM3S6965_BUILD_ETHERNET_FTP=ON")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

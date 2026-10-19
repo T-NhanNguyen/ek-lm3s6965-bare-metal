@@ -4,7 +4,8 @@ ENTRY(Reset_Handler)
 MEMORY
 {
   FLASH (rx) : ORIGIN = 0x00008800, LENGTH = 0x1B400
-  SRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 0xDFC0
+  SRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 0xDBC0
+  CONTINUITY (rw) : ORIGIN = 0x2000DBC0, LENGTH = 1024
   DIAGNOSTIC (rw) : ORIGIN = 0x2000DFC0, LENGTH = 64
   STACK (rw) : ORIGIN = 0x2000E000, LENGTH = 8K
 }
@@ -94,7 +95,16 @@ SECTIONS
   } > SRAM
   /* Dynamic capacity is all remaining lower SRAM, not a new 2 KiB policy.
    * Runtime allocator binding to these bounds is a separate increment. */
-  _heap_end = _diagnostic_start;
+  _heap_end = _continuity_start;
+  _continuity_start = ORIGIN(CONTINUITY);
+  _continuity_end = ORIGIN(CONTINUITY) + LENGTH(CONTINUITY);
+  boot_startup_continuity = ABSOLUTE(_continuity_start);
+  .boot_continuity ORIGIN(CONTINUITY) (NOLOAD) : { . += 1024; } > CONTINUITY
+  ASSERT(_continuity_start == 0x2000DBC0 && (_continuity_start & 7) == 0 &&
+         _continuity_end == _diagnostic_start && SIZEOF(.boot_continuity) == 1024,
+         "continuity reservation contract")
+  ASSERT(_edata <= _continuity_start && _ebss <= _continuity_start &&
+         _heap_static_end <= _continuity_start, "ordinary SRAM overlaps continuity")
   .boot_diagnostic ORIGIN(DIAGNOSTIC) (NOLOAD) :
   {
     . += 64;

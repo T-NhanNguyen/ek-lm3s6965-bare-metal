@@ -10,7 +10,16 @@
 #include "mbedtls/platform_util.h"
 #include "mbedtls/sha256.h"
 
+#if defined(LM3S6965_BOOT_PHYSICAL_PRODUCTION) && LM3S6965_BOOT_PHYSICAL_PRODUCTION
+#include "lm3s6965_boot_production_public_key.h"
+#ifndef LM3S6965_BOOT_GENERATED_PUBLIC_ROOT
+#error "Production verification requires a generated explicit PUBLIC trust root"
+#endif
+#else
+/* Deliberately nonproduction; never a production fallback. */
 #include "boot_demo_public_key.h"
+#define lm3s6965_boot_public_key lm3s6965_boot_demo_public_key
+#endif
 #include "lm3s6965/boot_format.h"
 
 static int notify(boot_verify_progress_fn progress, void *context,
@@ -54,8 +63,8 @@ boot_verify_result_t boot_verify_manifest(const uint8_t *wire, size_t size,
         error = mbedtls_ecp_group_load(&group, MBEDTLS_ECP_DP_SECP256R1);
     if (error == 0)
         error = mbedtls_ecp_point_read_binary(&group, &point,
-                    lm3s6965_boot_demo_public_key,
-                    sizeof lm3s6965_boot_demo_public_key);
+                    lm3s6965_boot_public_key,
+                    sizeof lm3s6965_boot_public_key);
     if (error == 0)
         error = mbedtls_ecp_check_pubkey(&group, &point);
     if (error == 0)

@@ -82,11 +82,11 @@ err_t lm3s_netif_initialize(uint32_t cpu_clock_hz, uint32_t now)
     return ERR_OK;
 }
 
-void lm3s_netif_service(uint32_t now)
+bool lm3s_netif_service(uint32_t now)
 {
     if (!initialized)
     {
-        return;
+        return false;
     }
     if (net_clock_elapsed(now, last_phy_poll, 10u))
     {
@@ -109,6 +109,10 @@ void lm3s_netif_service(uint32_t now)
             netif_set_link_up(&interface);
             netif_set_up(&interface);
         }
+        if (result != ETHERNET_OK)
+        {
+            return false; /* PHY failure is not successful link-down work. */
+        }
     }
     for (unsigned count = 0; count < 8u; ++count)
     {
@@ -125,7 +129,7 @@ void lm3s_netif_service(uint32_t now)
         }
         if (result != ETHERNET_OK)
         {
-            break;
+            return false;
         }
         if (!ready || length < ETHERNET_FRAME_HEADER_BYTES ||
             length > sizeof(rx_frame))
@@ -143,6 +147,7 @@ void lm3s_netif_service(uint32_t now)
             pbuf_free(packet); /* Successful input takes ownership. */
         }
     }
+    return true;
 }
 
 bool lm3s_netif_ready(void)

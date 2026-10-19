@@ -24,6 +24,8 @@ static struct channel control, data;
 static struct tcp_pcb *listener, *passive;
 static ip_addr_t local;
 static uint32_t now;
+/* Foreground owner failures are sticky, unlike handled client failures. */
+static bool servicing, service_failed;
 
 static err_t receive(void *, struct tcp_pcb *, struct pbuf *, err_t);
 static err_t sent(void *, struct tcp_pcb *, u16_t);
@@ -330,8 +332,13 @@ static void flush_close(struct channel *c)
         /* Core's original pending-close deadline bounds ERR_MEM retries. */
     }
 }
-void ftp_tcp_service(uint32_t time)
+bool ftp_tcp_service(uint32_t time)
 {
+    if (servicing || service_failed || !ftp_core_is_initialized()) {
+        service_failed = true;
+        return false;
+    }
+    servicing = true;
     now = time;
     /* Independent of core reply lifetime: tcp_write may drain the ring while
      * tcp_output still cannot submit anything. Enqueues do not reset this. */
@@ -354,10 +361,13 @@ void ftp_tcp_service(uint32_t time)
     write_control();
     flush_close(&control); /* submit 150 before enabling any data work */
     input_data();
-    /* One boot action per turn, outside every raw TCP callback. */
-    ftp_core_foreground(now);
+    /* One boot action per turn, outside every raw TCP callback. Reentry must
+     * not authorize another operation step or completion. */
+    if (!service_failed) ftp_core_foreground(now);
     actions();
     write_data();
     flush_close(&data);
     actions();
+    servicing = false;
+    return !service_failed;
 }

@@ -13,6 +13,10 @@ volatile uint32_t test_systick[3];
 #include "../../../examples/ethernet-ftp/net_clock.c"
 
 static bool allocation_fail;
+static bool take_fail;
+static ethernet_result_t rx_result = ETHERNET_OK;
+static err_t test_pbuf_take(struct pbuf *p, const void *data, u16_t length)
+{ return take_fail ? ERR_MEM : pbuf_take(p, data, length); }
 static bool allocate_chain;
 static struct pbuf *test_pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type type)
 {
@@ -24,9 +28,11 @@ static struct pbuf *test_pbuf_alloc(pbuf_layer layer, u16_t length, pbuf_type ty
     pbuf_cat(first, second);
     return first;
 }
+#define pbuf_take test_pbuf_take
 #define pbuf_alloc test_pbuf_alloc
 #include "../../../examples/ethernet-ftp/lm3s_netif.c"
 #undef pbuf_alloc
+#undef pbuf_take
 
 static ethernet_result_t poll_result = ETHERNET_OK;
 static ethernet_status_t fake_status;
@@ -63,6 +69,7 @@ ethernet_result_t ethernet_read_frame(uint8_t *data, size_t capacity, size_t *le
 {
     ++reads;
     *length = 0;
+    if (rx_result != ETHERNET_OK) return rx_result;
     if (!pending) return ETHERNET_EMPTY;
     --pending;
     if (!data) { assert(capacity == 0); ++discards; return ETHERNET_DROPPED; }
@@ -125,28 +132,28 @@ int main(void)
     fake_status.phy_link = true;
     fake_status.autonegotiation_complete = true;
     pending = 10;
-    lm3s_netif_service(UINT32_MAX - 5);
+    assert(lm3s_netif_service(UINT32_MAX - 5));
     assert(polls == 1 && !ready && discards == 8 && pending == 2);
-    lm3s_netif_service(3);
+    assert(lm3s_netif_service(3));
     assert(polls == 1 && discards == 10);
     fake_status.mac_ready = true;
-    lm3s_netif_service(4);
+    assert(lm3s_netif_service(4));
     assert(polls == 2 && ready && netif_is_up(netif_default) && netif_is_link_up(netif_default));
     netif_default->input = consume_input;
     inputs = 0; reads = 0; pending = 10;
-    lm3s_netif_service(5);
+    assert(lm3s_netif_service(5));
     assert(inputs == 8 && reads == 8 && pending == 2);
-    lm3s_netif_service(6);
+    assert(lm3s_netif_service(6));
     assert(inputs == 10 && pending == 0);
     allocate_chain = true; pending = 1;
-    lm3s_netif_service(7);
+    assert(lm3s_netif_service(7));
     assert(inputs == 11);
     input_result = ERR_IF; pending = 1;
     const mem_size_t used = lwip_stats.mem.used;
-    lm3s_netif_service(8);
+    assert(lm3s_netif_service(8));
     assert(inputs == 12 && lwip_stats.mem.used == used);
     allocation_fail = true; pending = 1;
-    lm3s_netif_service(9);
+    assert(lm3s_netif_service(9));
     assert(inputs == 12 && pending == 0);
     allocation_fail = false; allocate_chain = false;
     struct pbuf *p = pbuf_alloc(PBUF_RAW, 700, PBUF_RAM);
@@ -182,16 +189,16 @@ int main(void)
     struct eth_addr *peer_mac; const ip4_addr_t *found_ip;
     assert(etharp_find_addr(netif_default, &peer, &peer_mac, &found_ip) >= 0);
     fake_status.mac_ready = false; pending = 1;
-    lm3s_netif_service(14);
+    assert(lm3s_netif_service(14));
     assert(!ready && teardowns == 1 && discards == 11);
     for (size_t i = 0; i < ARP_TABLE_SIZE; ++i)
     {
         ip4_addr_t *ip; struct netif *n; struct eth_addr *eth;
         assert(!etharp_get_entry(i, &ip, &n, &eth));
     }
-    lm3s_netif_service(24); assert(teardowns == 1);
-    fake_status.mac_ready = true; lm3s_netif_service(34); assert(ready);
-    poll_result = ETHERNET_TIMEOUT; lm3s_netif_service(44);
+    assert(lm3s_netif_service(24)); assert(teardowns == 1);
+    fake_status.mac_ready = true; assert(lm3s_netif_service(34)); assert(ready);
+    poll_result = ETHERNET_TIMEOUT; assert(!lm3s_netif_service(44));
     assert(!ready && teardowns == 2);
     assert(lwip_stats.mem.used == 0);
     assert(lwip_stats.memp[MEMP_PBUF_POOL]->used == 0);
