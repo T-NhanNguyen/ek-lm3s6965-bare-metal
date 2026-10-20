@@ -11,6 +11,7 @@
 #include "lwip/timeouts.h"
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)
 #include "foreground_owner.h"
+#include "fixture_led.h"
 #include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_startup_gptm.h"
 #endif
@@ -59,6 +60,8 @@ int main(void)
      * SysTick while masked, sample GPTM AFTER start, commit conservative entry
      * offset, and safely unmask only SysTick. Never restart/retransfer WDT. */
     const uint32_t clock_hz = boot_startup_continuity.hz;
+    /* Still masked: PF0 and pattern state must precede SysTick enable. */
+    fixture_led_initialize();
     if (!net_clock_initialize(clock_hz))
     {
         fail_closed();

@@ -108,7 +108,7 @@ target_compile_options(lm3s6965_boot_launch PRIVATE
 # One-shot HOST reset->selection composition, not startup/MMIO or a boot image.
 # Consumers supply the verifier/crypto dependencies and final link policy.
 add_library(lm3s6965_boot_runtime STATIC EXCLUDE_FROM_ALL
-    boot_runtime.c boot_reset_handler.c boot_reset.c boot_lifecycle.c
+    boot_runtime.c boot_reset_handler.c boot_reset_accounting.c boot_lifecycle.c
     boot_store.c boot_format.c)
 target_link_libraries(lm3s6965_boot_runtime PUBLIC lm3s6965_boot_launch)
 target_compile_options(lm3s6965_boot_runtime PRIVATE
@@ -166,6 +166,41 @@ foreach(target IN ITEMS
 endforeach()
 # Prebuilt libc/libgcc attributes are unchanged: the exact linked runtime helper
 # signatures need a separate no-enum-crossing assessment, not warning suppression.
+
+if(LM3S6965_BUILD_BOOT_RESET)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/boot_crypto.cmake")
+    add_library(lm3s6965_boot_verifier STATIC boot_verify.c)
+    target_link_libraries(lm3s6965_boot_verifier PUBLIC boot_crypto)
+    target_include_directories(lm3s6965_boot_verifier PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+    target_compile_options(lm3s6965_boot_verifier PRIVATE
+        ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+    # Explicit dependency repairs archive order for select/launch consumers.
+    target_link_libraries(lm3s6965_boot_launch PUBLIC lm3s6965_boot_verifier)
+    add_executable(lm3s6965_boot_reset
+        boot_entry/boot_reset_entry.S boot_entry/boot_vectors.c
+        boot_entry/boot_decision_entry.c boot_entry/boot_clock_setup.c
+        boot_entry/boot_allocation_support.c)
+    target_link_libraries(lm3s6965_boot_reset PRIVATE
+        lm3s6965_boot_target_io lm3s6965_boot_verifier boot_crypto)
+    target_compile_options(lm3s6965_boot_reset PRIVATE
+        ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+    # Deliberately NOT LM3S6965_LINK_FLAGS: that carries the application script.
+    target_link_options(lm3s6965_boot_reset PRIVATE
+        -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -nostartfiles
+        --specs=nano.specs --specs=nosys.specs
+        "-T${CMAKE_CURRENT_SOURCE_DIR}/../linker/bootloader.ld"
+        -Wl,--entry=Boot_Reset_Handler -Wl,--gc-sections
+        "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/lm3s6965_boot_reset.map")
+    set_property(TARGET lm3s6965_boot_reset APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../linker/bootloader.ld")
+    find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+    add_custom_command(TARGET lm3s6965_boot_reset POST_BUILD
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-boot-reset-image.py"
+            "$<TARGET_FILE:lm3s6965_boot_reset>"
+        COMMENT "Checking exact boot vectors, reset entry and load closure")
+    lm3s6965_add_binary_outputs(lm3s6965_boot_reset)
+endif()
 
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch
 # paths and configuration definitions. Never import an example's config here.

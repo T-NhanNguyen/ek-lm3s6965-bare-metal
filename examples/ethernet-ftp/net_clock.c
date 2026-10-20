@@ -5,6 +5,7 @@
 #include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_startup_gptm.h"
 #include "net_clock_port.h"
+#include "fixture_led.h"
 static uint32_t startup_elapsed_ms;
 static bool initialized;
 #endif
@@ -86,8 +87,12 @@ bool net_clock_initialize(uint32_t cpu_clock_hz)
 
 void SysTick_Handler(void)
 {
-    /* Time publication ONLY: no retained GPTM, WDT, lwIP or owner access. */
+    /* No retained GPTM, WDT, lwIP or owner access. Foreground fixtures add
+     * only a bounded pulse-density/blink step and masked PF0 GPIO write. */
     ++milliseconds;
+#if defined(LM3S6965_FTP_FOREGROUND_OWNER) && defined(LM3S6965_FTP_FIXTURE_PATTERN)
+    fixture_led_tick();
+#endif
 }
 
 uint32_t sys_now(void)

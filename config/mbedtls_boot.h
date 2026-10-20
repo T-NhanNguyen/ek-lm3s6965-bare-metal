@@ -19,4 +19,10 @@
 #define MBEDTLS_ECDSA_C
 #define MBEDTLS_SHA256_C
 
+/* Reduce ROM at the cost of runtime: omit fixed-generator precomputation
+ * and use the compact SHA-256 implementation; algorithms are unchanged.
+ */
+#define MBEDTLS_ECP_FIXED_POINT_OPTIM 0
+#define MBEDTLS_SHA256_SMALLER
+
 #endif /* LM3S6965_MBEDTLS_BOOT_H */

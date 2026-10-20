@@ -127,6 +127,12 @@ class PayloadTests(unittest.TestCase):
             with self.subTest(der=der.hex()), self.assertRaises(p.PackageError):
                 p.der_to_raw(der)
 
+    def test_high_s_remains_accepted(self):
+        encoded = b"\0" + (p.ORDER - 1).to_bytes(32, "big")
+        body = b"\x02\x01\x01\x02" + bytes([len(encoded)]) + encoded
+        self.assertEqual(p.der_to_raw(b"\x30" + bytes([len(body)]) + body),
+                         (1).to_bytes(32, "big") + (p.ORDER - 1).to_bytes(32, "big"))
+
     def test_atomic_publication(self):
         with tempfile.TemporaryDirectory() as directory:
             dest = Path(directory) / "output"
@@ -451,7 +457,7 @@ class VerifierOracleTests(unittest.TestCase):
         assert_verifier_result(self, subprocess.CompletedProcess([], 1, b"", b"invalid package"), 1)
 
 
-def check_signed(test, wire, slot, directory):
+def check_signed(test, wire, slot, directory, selected_public=None):
     length = struct.unpack_from("<I", wire, 36)[0]
     test.assertEqual(len(wire), 160 + length)
     test.assertEqual(wire[:16], b"LM3S6965-FW-V1\0\0")
@@ -472,13 +478,13 @@ def check_signed(test, wire, slot, directory):
     signature = directory / "signature.der"
     signature.write_bytes(b"\x30" + bytes([len(body)]) + body)
     public = directory / "public.der"
-    public.write_bytes(p.SPKI_PREFIX + p.trusted_public())
+    public.write_bytes(p.SPKI_PREFIX + (p.trusted_public() if selected_public is None else selected_public))
     prefix = directory / "prefix"
     prefix.write_bytes(wire[:96])
     result = command(["openssl", "dgst", "-sha256", "-verify", str(public), "-keyform", "DER",
                       "-signature", str(signature), str(prefix)])
     test.assertEqual(result.returncode, 0, result.stderr.decode())
-    if VERIFIER:
+    if VERIFIER and selected_public is None:
         package = directory / "verify.pkg"
         package.write_bytes(wire)
         assert_verifier_result(test, command([VERIFIER, slot, str(package)]), 0)
@@ -489,6 +495,102 @@ def check_signed(test, wire, slot, directory):
                         wire[:-1] + bytes([wire[-1] ^ 1])):
             package.write_bytes(changed)
             assert_verifier_result(test, command([VERIFIER, slot, str(package)]), 1)
+
+
+class SelectedRootTests(unittest.TestCase):
+    """Only ephemeral external keys; never consult the existing demo private key."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.folder = Path(self.temp.name).resolve()
+        self.assertFalse(self.folder.is_relative_to(ROOT))
+        self.folder.chmod(0o700)
+        self.key = self.folder / "ephemeral.pem"
+        result = command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+                          "ec_paramgen_curve:prime256v1", "-out", str(self.key)])
+        self.assertEqual(result.returncode, 0)
+        self.key.chmod(0o600)
+        result = command(["openssl", "pkey", "-in", str(self.key), "-pubout",
+                          "-outform", "DER", "-ec_conv_form", "uncompressed"])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout[:26], p.SPKI_PREFIX)
+        self.public = result.stdout[26:]
+        self.public_path = self.folder / "public.sec1"
+        self.public_path.write_bytes(self.public)
+        self.source = self.folder / "image.bin"
+        self.source.write_bytes(raw())
+        self.output = self.folder / "image.pkg"
+
+    def test_selected_root_python_and_cli_independent_signature(self):
+        self.assertEqual(p.validate_key(self.key, self.public_path), self.key)
+        for slot in p.BASES:
+            self.source.write_bytes(raw(slot, 237))
+            p.package(self.source, self.output, slot, 0xffffffff, self.key, "bin", self.public_path)
+            signed = self.output.read_bytes()
+            check_signed(self, signed, slot, self.folder, self.public)
+            with self.assertRaises(p.PackageError):
+                p.package(self.source, self.output, slot, 1, self.key, "bin", self.public_path)
+            self.assertEqual(self.output.read_bytes(), signed)
+            self.output.unlink()
+            result = command([sys.executable, str(ROOT / "tools/boot/package.py"),
+                              "--input", str(self.source), "--input-format", "bin",
+                              "--output", str(self.output), "--slot", slot,
+                              "--release", "4294967295", "--private-key", str(self.key),
+                              "--public-key", str(self.public_path)])
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            check_signed(self, self.output.read_bytes(), slot, self.folder, self.public)
+            self.output.unlink()
+
+    def test_malformed_missing_mismatch_no_output_or_fallback(self):
+        prime = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
+        malformed = [b"", self.public[:-1], self.public + b"\0",
+                     b"\x02" + self.public[1:], b"\x04" + bytes(64),
+                     b"\x04" + prime.to_bytes(32, "big") + self.public[33:],
+                     self.public[:33] + prime.to_bytes(32, "big")]
+        # Fixed demo PUBLIC material is a valid but different selected identity.
+        for public in [*malformed, p.trusted_public(), None]:
+            with self.subTest(public=public):
+                if public is None:
+                    self.public_path.unlink()
+                else:
+                    self.public_path.write_bytes(public)
+                with patch.object(p, "trusted_public", side_effect=AssertionError("no fallback")):
+                    with self.assertRaises((p.PackageError, OSError)):
+                        p.package(self.source, self.output, "A", 1, self.key, "bin", self.public_path)
+                result = command([sys.executable, str(ROOT / "tools/boot/package.py"),
+                                  "--input", str(self.source), "--input-format", "bin",
+                                  "--output", str(self.output), "--slot", "A", "--release", "1",
+                                  "--private-key", str(self.key), "--public-key", str(self.public_path)])
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(self.output.exists())
+                self.assertFalse(list(self.folder.glob(".boot-package-*")))
+
+    def test_default_still_requires_demo_and_selected_custody(self):
+        with self.assertRaises(p.PackageError):
+            p.validate_key(self.key)
+        # Compatibility: an omitted argument selects the same demo PUBLIC bytes.
+        with patch.object(p, "openssl_run", side_effect=[b"", p.SPKI_PREFIX + p.trusted_public()]):
+            self.assertEqual(p.validate_key(self.key), self.key)
+        link = self.folder / "private-alias"
+        link.symlink_to(self.key)
+        hardlink = self.folder / "private-hardlink"
+        os.link(self.key, hardlink)
+        for public_path in (self.key, link, hardlink):
+            with self.subTest(alias=public_path), self.assertRaises(p.PackageError):
+                p.validate_key(self.key, public_path)
+        with self.assertRaises(p.PackageError):
+            p.validate_key(link, self.public_path)
+        for input_path in (self.key, link, hardlink):
+            with self.subTest(input_alias=input_path), self.assertRaises(p.PackageError):
+                p.package(input_path, self.output, "A", 1, self.key, "bin", self.public_path)
+        self.assertFalse(self.output.exists())
+        self.key.chmod(0o644)
+        with self.assertRaises(p.PackageError):
+            p.validate_key(self.key, self.public_path)
+        self.key.chmod(0o600)
+        self.folder.chmod(0o755)
+        with self.assertRaises(p.PackageError):
+            p.validate_key(self.key, self.public_path)
 
 
 class SigningSafetyTests(unittest.TestCase):

@@ -7,6 +7,14 @@ project(lm3s6965_bsp
 
 include(cmake/boot_trust_root.cmake)
 
+option(LM3S6965_BUILD_BOOT_RESET "Build boot-only reset-to-decision image (no dispatch)" OFF)
+if(LM3S6965_BUILD_BOOT_RESET AND NOT LM3S6965_BOOT_PHYSICAL_PRODUCTION)
+    message(FATAL_ERROR "Boot reset image requires LM3S6965_BOOT_PHYSICAL_PRODUCTION=ON and an explicit PUBLIC key")
+endif()
+
+option(LM3S6965_BUILD_BOOT_BREATHING_LED
+    "Build offline slot-A breathing LED continuity fixture (not hardware ready)" OFF)
+
 option(LM3S6965_BUILD_ETHERNET_FTP "Build the opt-in bare-metal lwIP FTP example" OFF)
 option(LM3S6965_FTP_FOREGROUND_OWNER
     "Build RAM FTP slot application with inherited foreground watchdog ownership" OFF)

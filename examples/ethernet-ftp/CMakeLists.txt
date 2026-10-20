@@ -63,17 +63,25 @@ if(LM3S6965_FTP_FOREGROUND_OWNER)
         message(FATAL_ERROR "LM3S6965_FTP_FOREGROUND_SLOT must be A or B")
     endif()
     string(TOLOWER "${LM3S6965_FTP_FOREGROUND_SLOT}" foreground_slot)
+    if(LM3S6965_FTP_FOREGROUND_SLOT STREQUAL "A")
+        set(foreground_pattern 1) # 2 s breathing pulse density
+    else()
+        set(foreground_pattern 2) # 100/100/100/500 ms double blink
+    endif()
     # Separate compilation leaves standalone startup/clock policy unchanged.
     # No BSP link interface, duplicate cold reset startup or system PLL owner.
     # system_control.c supplies the driver's peripheral-clock enable only;
     # foreground main never calls PLL setup.
     add_library(lm3s6965_ftp_foreground_platform OBJECT
         main.c net_clock.c net_clock_port.c lm3s_netif.c foreground_owner.c ftp_sbrk.c
+        fixture_led.c fixture_pattern.c
+        "${PROJECT_SOURCE_DIR}/src/led.c"
         "${PROJECT_SOURCE_DIR}/src/system_control.c"
         "${PROJECT_SOURCE_DIR}/src/gpio.c"
         "${PROJECT_SOURCE_DIR}/src/ethernet.c")
     target_compile_definitions(lm3s6965_ftp_foreground_platform PRIVATE
-        LM3S6965_FTP_FOREGROUND_OWNER=1)
+        LM3S6965_FTP_FOREGROUND_OWNER=1
+        LM3S6965_FTP_FIXTURE_PATTERN=${foreground_pattern})
     target_link_libraries(lm3s6965_ftp_foreground_platform PUBLIC
         lm3s6965_headers lm3s6965_ftp_headers lm3s6965_ftp_lwip
         lm3s6965_boot_startup)
@@ -87,8 +95,10 @@ if(LM3S6965_FTP_FOREGROUND_OWNER)
     # and bounds _sbrk below them. Unlike standalone's fixed 8 KiB heap, this
     # opt-in slot uses remaining lower SRAM. No production fit is implied.
     set(foreground_linker "${PROJECT_SOURCE_DIR}/linker/app_${foreground_slot}.ld")
+    # Align the ELF entry with the authenticated application reset vector.
     target_link_options(lm3s6965_ethernet_ftp_foreground PRIVATE
         ${LM3S6965_ARCH_FLAGS} "-T${foreground_linker}"
+        -Wl,--entry=Application_Reset_Handler
         -Wl,-z,max-page-size=0x100 -Wl,--gc-sections
         -Wl,-Map=lm3s6965_ethernet_ftp_foreground.map
         -nostartfiles --specs=nano.specs --specs=nosys.specs)

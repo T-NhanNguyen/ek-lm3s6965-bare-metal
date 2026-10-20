@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline v1 demo packager. See docs/boot-package.md for the input contract."""
+"""Offline v1 signed packager. See docs/boot-package.md for the input contract."""
 import argparse
 import hashlib
 import os
@@ -202,19 +202,40 @@ def trusted_public():
     return public
 
 
-def validate_key(key):
+def validate_public(public):
+    """Validate a raw uncompressed SEC1 P-256 point, without writing headers."""
+    require(len(public) == 65 and public[0] == 4,
+            "public key must be exactly 65-byte uncompressed SEC1")
+    prime = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
+    b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+    x, y = int.from_bytes(public[1:33], "big"), int.from_bytes(public[33:], "big")
+    require(x < prime and y < prime, "public key coordinate outside P-256 field")
+    require((y * y - (x * x * x - 3 * x + b)) % prime == 0,
+            "public key point is not on P-256")
+    return public
+
+
+def validate_key(key, public_key=None):
     require(key.is_absolute(), "private key path must be absolute and external")
     resolved = key.resolve(strict=True)
     require(not resolved.is_relative_to(ROOT), "private key must remain outside repository")
     require(not key.is_symlink() and stat.S_ISREG(resolved.stat().st_mode), "key must be a regular nonsymlink file")
     require(stat.S_IMODE(resolved.stat().st_mode) == 0o600 and
             stat.S_IMODE(resolved.parent.stat().st_mode) == 0o700, "key/directory require modes 0600/0700")
+    if public_key is None:
+        public = validate_public(trusted_public())
+    else:
+        require(not public_key.samefile(resolved), "public key cannot alias private key")
+        require(stat.S_ISREG(public_key.stat().st_mode), "public key must be a regular file")
+        with public_key.open("rb") as stream:
+            require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "public key must be a regular file")
+            public = validate_public(stream.read(66))
     openssl_run(["pkey", "-in", str(resolved), "-check", "-noout", "-passin", "pass:"])
     public_der = openssl_run(["pkey", "-in", str(resolved), "-pubout", "-outform", "DER",
                              "-ec_conv_form", "uncompressed", "-passin", "pass:"])
     require(len(public_der) == 91 and public_der[:26] == SPKI_PREFIX,
             "key must be named-curve P-256")
-    require(public_der[26:] == trusted_public(), "key does not match fixed demo trust root")
+    require(public_der[26:] == public, "key does not match selected trust root")
     return resolved
 
 
@@ -245,10 +266,10 @@ def publish(output, content):
             temp.unlink(missing_ok=True)
 
 
-def package(input_path, output, slot, release, key, input_format):
+def package(input_path, output, slot, release, key, input_format, public_key=None):
     require(not os.path.lexists(output), "output already exists (no overwrite)")
     require(output.parent.is_dir(), "output parent must exist")
-    resolved_key = validate_key(key)
+    resolved_key = validate_key(key, public_key)
     require(input_path.resolve() != resolved_key and not input_path.samefile(resolved_key),
             "input cannot be private key (including aliases)")
     payload = canonical_payload(read_input(input_path), slot, input_format)
@@ -264,10 +285,13 @@ def main():
     parser.add_argument("--slot", required=True, choices=("A", "B"))
     parser.add_argument("--release", required=True, type=int)
     parser.add_argument("--private-key", required=True, type=Path)
+    parser.add_argument("--public-key", type=Path,
+                        help="raw 65-byte SEC1 P-256 trust root (default: fixed demo header)")
     args = parser.parse_args()
     try:
         require(0 <= args.release <= 0xffffffff, "release must be uint32")
-        package(args.input, args.output, args.slot, args.release, args.private_key, args.input_format)
+        package(args.input, args.output, args.slot, args.release, args.private_key,
+                args.input_format, args.public_key)
     except (PackageError, OSError) as exc:
         # OSError text may contain a sensitive path. Keep failures path-free.
         print("package: " + (str(exc) if isinstance(exc, PackageError) else "filesystem operation failed"), file=sys.stderr)

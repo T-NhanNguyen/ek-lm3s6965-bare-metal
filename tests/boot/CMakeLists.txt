@@ -7,6 +7,14 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 include(../../cmake/boot_crypto.cmake)
+
+# Focused clock-only fixture; never touches target MMIO or executes the image.
+add_executable(test_boot_clock_setup test_boot_clock_setup.c
+    ../../src/boot_entry/boot_clock_setup.c)
+target_include_directories(test_boot_clock_setup PRIVATE
+    ../../include ../../src/boot_entry)
+target_compile_options(test_boot_clock_setup PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+
 add_library(boot_verify STATIC ../../src/boot_verify.c ../../src/boot_format.c)
 target_include_directories(boot_verify PUBLIC ../../include)
 target_link_libraries(boot_verify PUBLIC boot_crypto)
@@ -35,7 +43,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
     target_compile_options(boot_lifecycle PRIVATE -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -fno-common
         $<$<CONFIG:Release>:-Os>)
 endif()
-add_library(boot_reset STATIC ../../src/boot_reset.c)
+add_library(boot_reset STATIC ../../src/boot_reset_accounting.c)
 target_link_libraries(boot_reset PUBLIC boot_lifecycle)
 target_compile_options(boot_reset PRIVATE
     -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
@@ -211,6 +219,10 @@ endif()
 # Logical roster and JSONL/artifacts belong to this single runner, not CTest discovery.
 enable_language(ASM)
 find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+add_test(NAME boot_reset_image_checker COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_boot_reset_image.py -v)
+set_tests_properties(boot_reset_image_checker PROPERTIES TIMEOUT 120
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 add_test(NAME boot_dependencies COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test_dependencies.py -v)
 set_tests_properties(boot_dependencies PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
@@ -421,6 +433,7 @@ if(BOOT_SANITIZERS)
 endif()
 add_test(NAME boot_format COMMAND test_format)
 add_test(NAME boot_crypto COMMAND test_crypto)
+add_test(NAME boot_clock_setup COMMAND test_boot_clock_setup)
 add_test(NAME boot_verify COMMAND test_verify)
 add_test(NAME boot_verify_fault COMMAND test_verify_fault)
 add_test(NAME boot_snapshot COMMAND test_snapshot)
