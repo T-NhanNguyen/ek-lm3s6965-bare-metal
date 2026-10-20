@@ -1,4 +1,4 @@
-# Boot-only reset image (experimental, no deployment)
+# Boot-only decision and opt-in dispatch images (experimental, no deployment)
 
 Configure outside the source tree with an explicitly authorized raw 65-byte
 SEC1 uncompressed P-256 **public** root:
@@ -15,6 +15,58 @@ cmake --build /tmp/lm3s6965-boot-reset --target lm3s6965_boot_reset
 `LM3S6965_BUILD_BOOT_RESET` defaults OFF. ON requires explicit-root production
 selection; it never silently uses demo trust. A known public test fixture is
 suitable only for authorized RnD, not deployment-grade provisioning.
+
+## Opt-in checked dispatch image (not hardware accepted)
+
+Use a separate build directory and the same explicitly selected PUBLIC root.
+`LM3S6965_BUILD_BOOT_DISPATCH_IMAGE` defaults OFF and is mutually exclusive
+with `LM3S6965_BUILD_BOOT_RESET`; the default and decision image still never
+execute an application.
+
+```sh
+cmake -S . -B /tmp/lm3s6965-boot-dispatch \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchain-lm3s6965.cmake" \
+  -DCMAKE_BUILD_TYPE=Release -DLM3S6965_BUILD_BOOT_RESET=OFF \
+  -DLM3S6965_BUILD_BOOT_DISPATCH_IMAGE=ON \
+  -DLM3S6965_BOOT_PHYSICAL_PRODUCTION=ON \
+  -DLM3S6965_BOOT_PUBLIC_KEY_FILE=/absolute/path/to/public.sec1
+cmake --build /tmp/lm3s6965-boot-dispatch --target lm3s6965_boot_dispatch
+```
+
+The distinct ELF/map/bin/hex basename is `lm3s6965_boot_dispatch`. It shares
+boot linker, verifier/crypto, full-width enum ABI and image checks; the checker
+uses `--dispatch` to require target handoff, prepare and terminal/startup closure
+and reject application reset/main/constructor leakage. The unchanged 32 KiB
+limit still applies. The pre-IPO dispatch attempt overflowed by **2,316 bytes**
+with compile-time `-Os` already effective. Dispatch-only Release now requires
+supported IPO/LTO across the executable and reachable source archives, links
+explicitly at `-Os`, and roots real definitions required by the unchanged static
+checks. Decision-image optimization and crypto configuration are unchanged.
+**Post-IPO fit and linked/static acceptance remain pending**; no size savings
+are claimed.
+The signed selected application must use the existing continuity entry stub
+and slot linker ABI, not an arbitrary structurally valid reset vector.
+
+The dispatch entry initializes fresh boot-local target/handoff, observes the
+actual masked privileged core, calls `boot_sequence_launch` exactly once and
+passes its genuine runtime result and launch output to `boot_startup_prepare`,
+then nonreturning `boot_startup_dispatch`. No second producer, selection,
+watchdog configuration/feed or ordinary application RAM initialization occurs
+in boot. Genuine reset, exclusive boot-only hardware ownership and stable
+clock/storage remain mandatory; this is not debugger adoption or chainload.
+
+Checkpoints 1..7 retain their old meanings. Dispatch adds 8 handoff-init failure,
+9 observation failure, 10 launch failure, 11 checked launch ready, 12 prepare
+failure, 13 prepared for dispatch. Sequence result is valid at 10..13;
+`boot_entry_launch` only at 11..13. `boot_entry_decision` remains valid **only**
+at decision state 7. State 13 is not proof of application entry or C_READY;
+final dispatch validation may still fail (retained startup FAILED, no-feed stop).
+Early failures also stop without feed, but do not prove WDT was configured.
+No dispatch build, test, programming, hardware execution, timing or physical
+acceptance is claimed by this integration; all physical results below concern
+only the historical decision-and-stop image.
+
+## Decision image evidence
 
 The target uses only `linker/bootloader.ld`, a target-local
 `--entry=Boot_Reset_Handler`, real verifier/Mbed TLS and bounded boot-local
@@ -94,8 +146,9 @@ execution. Cleanup last confirmed halted, removed the terminal breakpoint and
 left the owned server alive; this is last-known state, not persistence evidence.
 No manual feed/freeze or dispatch occurred. B fallback, physical LED/network
 execution, retained startup/application initialization and watchdog timing remain
-pending. Next objective is separately bounded application dispatch, not
-implemented or authorized by this documentation. The standalone release42
+pending. At that checkpoint, separately bounded application dispatch was not
+implemented or authorized. The opt-in integration above does not extend that
+physical acceptance. The standalone release42
 [breathing fixture](../examples/boot-breathing-led/README.md) and its offline
 results remain historical, not the installed A44 payload.
 

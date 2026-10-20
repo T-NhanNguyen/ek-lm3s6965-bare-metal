@@ -64,7 +64,7 @@ void boot_runtime_watchdog_init(boot_runtime_watchdog_t *bridge)
     boot_runtime_init(&bridge->runtime);
 }
 
-static boot_runtime_watchdog_result_t run(
+static inline __attribute__((always_inline)) boot_runtime_watchdog_result_t run(
     boot_runtime_watchdog_t *bridge, boot_watchdog_t *w,
     boot_handoff_t *h, const boot_handoff_context_t *observed, unsigned launch,
     const boot_reset_register_adapter_t *registers,

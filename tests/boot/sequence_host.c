@@ -3,6 +3,9 @@
 #include "flash_model.h"
 #include "verify_fixtures.h"
 #include "lm3s6965/boot_watchdog_target.h"
+#include "lm3s6965/boot_handoff_target.h"
+#include "../../src/boot_watchdog_internal.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,14 +17,15 @@ static uint32_t words[16], gate0, gate1, timer[19], ctl, load, locked;
 static unsigned delays, calls, configs, writes, loads, icrs, timer_writes, mode;
 static boot_watchdog_t *original;
 static const uint32_t hz = 12345679u; /* not a nominal 50MHz macro */
-static struct { char op; uint32_t a,v; } trace[256];
+static struct { char op; uint32_t a,v; } trace[4096];
 static unsigned n;
 static void boundary(void);
+static void checked_write_boundary(void);
 static unsigned resc_reads;
 static unsigned runtime_calls, feeds;
 static struct { uint32_t id, epoch, completed; } history[32];
 static void event(char op,uint32_t a,uint32_t v) {
-    CHECK(n<256); trace[n].op=op; trace[n].a=a; trace[n++].v=v;
+    CHECK(n<4096); trace[n].op=op; trace[n].a=a; trace[n++].v=v;
 }
 static int rd(void *p,uint32_t a,uint32_t *v) {
     CHECK(p==c.context); boundary(); if(calls==0) CHECK(resc_reads==1); ++calls;
@@ -44,7 +48,7 @@ static int rd(void *p,uint32_t a,uint32_t *v) {
     event('R',a,*v); return 0;
 }
 static int wr(void *p,uint32_t a,uint32_t v) {
-    CHECK(p==c.context); boundary(); if(calls==0) CHECK(resc_reads==1); ++calls; ++writes; event('W',a,v);
+    CHECK(p==c.context); boundary(); checked_write_boundary(); if(calls==0) CHECK(resc_reads==1); ++calls; ++writes; event('W',a,v);
     if(a==BOOT_WATCHDOG_RCGC0) { if(mode!=1) gate0=v; }
     else {
         CHECK(delays>=1);
@@ -89,11 +93,15 @@ static uint32_t resc[3], last_clear;
 static unsigned resc_writes, read_fault, write_fault, payload_reads;
 static unsigned guard_checks, check_guards, inside, serial, capture_order, store_order;
 static unsigned token;
+static void checked_boundary(void);
+static int checked_is_launching(void);
+static void checked_reset(void);
 static boot_sequence_result_t invoke(void) { return boot_sequence_run(&seq,&params,&out); }
 static void boundary(void) {
+    checked_boundary();
     CHECK(!memcmp(&out,&sentinel,sizeof out));
     CHECK(seq.consumed==1);
-    if (check_guards && !inside) {
+    if (check_guards && !inside && !checked_is_launching()) {
         inside=1;
         unsigned a=calls,b=resc_reads,d=resc_writes,e=payload_reads;
         size_t f=flash.calls;
@@ -104,7 +112,7 @@ static void boundary(void) {
     }
 }
 static int reset_read(void *p,uint32_t *v) {
-    CHECK(p==&token); boundary(); ++serial; ++resc_reads;
+    CHECK(p==&token); boundary(); checked_reset(); ++serial; ++resc_reads;
     CHECK(resc_reads<=3);
     if(resc_reads==1) CHECK(calls==0 && configs==0 && flash.calls==0);
     if(resc_reads==2) { CHECK(configs==1 && runtime_calls==1); capture_order=serial; }
@@ -222,9 +230,12 @@ static void reset_failed(boot_sequence_result_t r,boot_reset_handler_result_t ex
     CHECK(c.watchdog.blocked && !c.watchdog.evidence && !memcmp(&out,&sentinel,sizeof out));
     duplicate();
 }
+#include "sequence_checked.h"
+
 int main(int argc,char **argv) {
     CHECK(argc==2); fresh();
-    if(!strcmp(argv[1],"signed-run")) success(invoke());
+    if (checked_case(argv[1])) { /* Focused launch roster, isolated process. */ }
+    else if(!strcmp(argv[1],"signed-run")) success(invoke());
     else if(!strcmp(argv[1],"early-stop")) {
         static boot_startup_t saved; uint32_t diag[16];
         memcpy(&saved,&c,sizeof c); memcpy(diag,words,sizeof words); read_fault=1;

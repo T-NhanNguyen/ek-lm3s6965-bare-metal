@@ -8,8 +8,14 @@ project(lm3s6965_bsp
 include(cmake/boot_trust_root.cmake)
 
 option(LM3S6965_BUILD_BOOT_RESET "Build boot-only reset-to-decision image (no dispatch)" OFF)
-if(LM3S6965_BUILD_BOOT_RESET AND NOT LM3S6965_BOOT_PHYSICAL_PRODUCTION)
-    message(FATAL_ERROR "Boot reset image requires LM3S6965_BOOT_PHYSICAL_PRODUCTION=ON and an explicit PUBLIC key")
+option(LM3S6965_BUILD_BOOT_DISPATCH_IMAGE
+    "Build opt-in checked application dispatch image (experimental)" OFF)
+if(LM3S6965_BUILD_BOOT_RESET AND LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+    message(FATAL_ERROR "Boot decision and dispatch images are mutually exclusive")
+endif()
+if((LM3S6965_BUILD_BOOT_RESET OR LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+        AND NOT LM3S6965_BOOT_PHYSICAL_PRODUCTION)
+    message(FATAL_ERROR "Boot images require LM3S6965_BOOT_PHYSICAL_PRODUCTION=ON and an explicit PUBLIC key")
 endif()
 
 option(LM3S6965_BUILD_BOOT_BREATHING_LED

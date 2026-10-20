@@ -184,15 +184,23 @@ enable_testing()
 # FIRST shared sequence gate: observation-only TU copies; production files unchanged.
 add_library(sequence_probe OBJECT ../../src/boot_sequence.c)
 target_include_directories(sequence_probe PRIVATE ../../include)
-target_compile_definitions(sequence_probe PRIVATE boot_runtime_watchdog_run=sequence_observe_runtime)
+target_compile_definitions(sequence_probe PRIVATE
+    boot_runtime_watchdog_run=sequence_observe_runtime
+    boot_runtime_watchdog_launch=sequence_observe_launch)
+add_library(sequence_handoff_probe OBJECT ../../src/boot_handoff.c)
+target_include_directories(sequence_handoff_probe PRIVATE ../../include)
+target_compile_definitions(sequence_handoff_probe PRIVATE
+    boot_watchdog_transfer_held=sequence_observe_transfer)
 add_library(sequence_producer_probe OBJECT ../../src/boot_startup_producer.c)
 target_include_directories(sequence_producer_probe PRIVATE ../../include)
 target_compile_definitions(sequence_producer_probe PRIVATE boot_watchdog_configure=sequence_observe_configure)
 add_executable(test_sequence sequence_host.c flash_model.c
     ../../src/boot_watchdog_target.c ../../src/boot_startup_gptm.c
-    $<TARGET_OBJECTS:sequence_probe> $<TARGET_OBJECTS:sequence_producer_probe>)
+    ../../src/boot_handoff_target.c
+    $<TARGET_OBJECTS:sequence_probe> $<TARGET_OBJECTS:sequence_producer_probe>
+    $<TARGET_OBJECTS:sequence_handoff_probe>)
 target_link_libraries(test_sequence PRIVATE boot_startup boot_runtime_watchdog)
-foreach(target IN ITEMS sequence_probe sequence_producer_probe test_sequence)
+foreach(target IN ITEMS sequence_probe sequence_producer_probe sequence_handoff_probe test_sequence)
     target_compile_options(${target} PRIVATE -UNDEBUG -Wall -Wextra -Werror -fno-short-enums)
     if(BOOT_SANITIZERS)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

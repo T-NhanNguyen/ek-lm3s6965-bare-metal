@@ -1,9 +1,20 @@
-/* Shared boot-only orchestration; terminal selection, never execution. */
+/* Shared boot-only orchestration; decision or checked logical launch. */
 #ifndef LM3S6965_BOOT_SEQUENCE_H
 #define LM3S6965_BOOT_SEQUENCE_H
 
-#include "lm3s6965/boot_startup_producer.h"
+#include <stdatomic.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_handoff.h"
+#include "lm3s6965/boot_launch.h"
+#include "lm3s6965/boot_reset_handler.h"
 #include "lm3s6965/boot_runtime_watchdog.h"
+#include "lm3s6965/boot_select.h"
+#include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_startup_producer.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_verify.h"
+#include "lm3s6965/boot_watchdog.h"
 
 typedef struct
 {
@@ -25,6 +36,13 @@ typedef struct
     boot_verify_read_fn reader;
     void *reader_context;
 } boot_sequence_parameters_t;
+
+typedef struct
+{
+    boot_sequence_parameters_t common;
+    boot_handoff_t *handoff;
+    const boot_handoff_context_t *observed;
+} boot_sequence_launch_parameters_t;
 
 typedef enum
 {
@@ -76,5 +94,32 @@ void boot_sequence_init(boot_sequence_t *sequence);
  * Never chain launch, handoff, prepare, dispatch or an actuator from this API. */
 boot_sequence_result_t boot_sequence_run(boot_sequence_t *sequence,
     const boot_sequence_parameters_t *parameters, boot_launch_decision_t *out);
+
+/* Alternative one-shot entry, NOT a continuation of run. All admission,
+ * lifetime, terminal-failure and ownership rules above apply; both APIs share
+ * the same BUSY/CONSUMED guards. Initialize a fresh handoff once before entry,
+ * with valid IO, unfinished/unblocked state and exclusive ownership. Never
+ * reinitialize it to escape failure. The whole launch descriptor and observed
+ * input are snapshotted before effects. Handoff and the whole launch output
+ * must be disjoint from sequence, continuity, diagnostic64, each other and all
+ * input spans (including the full launch descriptor and observation). Inputs
+ * may alias inputs. Opaque handoff callback context extents, like register,
+ * store and reader contexts, must be disjoint from all these spans; the caller
+ * establishes their sizes. Target-operation scratch is boot-local, outside
+ * continuity/application retained state; callbacks finish before app entry.
+ * Supply a truthful current privileged masked Thread observation and preserve
+ * exclusion through dispatch. A supplied observation is not physical evidence.
+ * Invalid admission has no IO; only ARGUMENT/NONE permits correction. Once
+ * admitted, stop on any failure without retry, cleanup, ownership rollback or
+ * feeding. Terminal callback may already have recorded intent/transferred
+ * ownership even on failure. Output changes only on complete success.
+ * OK/RUNTIME means checked logical launch, never physical app execution.
+ * Require successful nested runtime/handoff evidence, then pass this actual
+ * result.runtime and launch output directly to boot_startup_prepare; dispatch
+ * only if prepare succeeds. Do not fabricate evidence or repeat selection,
+ * producer, reset capture, verification or watchdog configuration. */
+boot_sequence_result_t boot_sequence_launch(boot_sequence_t *sequence,
+    const boot_sequence_launch_parameters_t *parameters,
+    boot_runtime_watchdog_launch_t *out);
 
 #endif

@@ -5,7 +5,7 @@ from pathlib import Path
 import struct
 
 
-def check(path):
+def check(path, dispatch=False):
     data = Path(path).read_bytes()
     if data[:7] != b'\x7fELF\x01\x01\x01':
         raise ValueError('requires ELF32 little-endian')
@@ -64,13 +64,32 @@ def check(path):
         if kind == 1 and filesz:
             if physical + filesz > 0x8000:
                 raise ValueError('all load bytes in boot FLASH')
-    for name in ('calloc', 'free', '_sbrk', 'boot_verify_stored', 'boot_sequence_run'):
-        if not 0 < symbols[name] < 0x8000:
+    closure = ['calloc', 'free', '_sbrk', 'boot_verify_stored']
+    if dispatch:
+        closure += ['boot_sequence_launch', 'boot_runtime_watchdog_launch',
+                    'boot_handoff_target_init', 'boot_handoff_target_observe',
+                    'boot_handoff_target_operation',
+                    'boot_handoff_target_terminal_intent',
+                    'boot_startup_prepare', 'boot_startup_begin_dispatch',
+                    'boot_startup_dispatch', 'boot_startup_terminal',
+                    'boot_startup_stop']
+        for name in ('boot_sequence_run', 'Application_Reset_Handler',
+                     'Application_Entry_Witness', 'boot_startup_running'):
+            if name in symbols:
+                raise ValueError(f'decision/application entry leaked into dispatch: {name}')
+    else:
+        closure += ['boot_sequence_run']
+    for name in closure:
+        if not 0 < symbols.get(name, 0) < 0x8000:
             raise ValueError(f'missing/out-of-boot closure: {name}')
-    print('boot reset: exact vectors, Thumb entry, first cpsid, load/RAM bounds and closure checked')
+    mode = 'dispatch' if dispatch else 'reset'
+    print(f'boot {mode}: exact vectors, Thumb entry, first cpsid, load/RAM bounds and closure checked')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('elf')
-    check(parser.parse_args().elf)
+    parser.add_argument('--dispatch', action='store_true',
+                        help='require checked dispatch closure instead of decision-only sequence')
+    args = parser.parse_args()
+    check(args.elf, dispatch=args.dispatch)

@@ -31,6 +31,9 @@ class Failure(Exception):
         self.at, self.assertion = at, assertion
 
 def main():
+    from checked_support import HOST_CASES
+    if '--prepare-only' in sys.argv or '--all' in sys.argv or any(arg.split('=',1)[-1] in HOST_CASES for arg in sys.argv[1:]):
+        return checked_main()
     p = argparse.ArgumentParser(description=__doc__)
     select = p.add_mutually_exclusive_group(required=True)
     select.add_argument('--all', action='store_true')
@@ -232,6 +235,48 @@ def main():
             shutil.copyfileobj(source, os.sys.stdout)
         print(reportpath.read_text(), end='')
     return int(bool(counts['fail'] or counts['invalid']))
+
+def checked_main():
+    from checked_support import (HOST_CASES, NESTED, Session, arguments, selfchecks,
+                                 Invalid as CheckedInvalid, Failure as CheckedFailure,
+                                 completed, assertion, sha)
+    a, roster = arguments(HOST_CASES, support='prepare-only')
+    s = Session('checked-sequence', a, roster)
+    def setup():
+        s.freeze(); selfchecks()
+        build = s.root/'host'
+        ready = s.root/'host-ready.json'
+        s.binary = build/'test_sequence'
+        if a.prepare_only:
+            if build.exists() or ready.exists():
+                raise CheckedInvalid('HOST prepare already attempted; no implicit rebuild/retry')
+            s.run(['cmake','-S',ROOT/'tests/boot','-B',build,
+                   '-DCMAKE_C_COMPILER='+str(CC),'-DCMAKE_BUILD_TYPE=Release','-DBOOT_SANITIZERS=ON'])
+            s.run(['cmake','--build',build,'--parallel','2','--target','test_sequence'])
+            if not s.binary.is_file(): raise CheckedInvalid('missing prepared sequence executable')
+            ready.write_text(json.dumps({'identity':s.identity,'binary':sha(s.binary),
+                'cache':sha(build/'CMakeCache.txt')},sort_keys=True,indent=2)+'\n')
+        else:
+            if not ready.is_file() or not s.binary.is_file():
+                raise CheckedInvalid('prepare-only HOST cache required; no per-case build')
+            if json.loads(ready.read_text()) != {'identity':s.identity,'binary':sha(s.binary),
+                                               'cache':sha(build/'CMakeCache.txt')}:
+                raise CheckedInvalid('prepared HOST source/tool/cache/binary identity mismatch')
+    def execute(case):
+        code, body = s.run([s.binary,case],expected=None)
+        if re.search(r'(?:ERROR|SUMMARY): AddressSanitizer: stack-overflow\b',body):
+            raise CheckedInvalid('ASan stack-overflow; invalid fixture/storage environment')
+        if code:
+            failure=assertion(body)
+            if failure:
+                file,line,text=failure
+                raise CheckedFailure(text,file+':'+str(line))
+            if 'AddressSanitizer' in body or 'runtime error:' in body:
+                raise CheckedFailure('sanitizer diagnostic; raw retained')
+            raise CheckedInvalid('HOST launch/crash without assertion evidence; raw retained')
+        if not completed(body,case): raise CheckedInvalid('missing/duplicate/mismatched HOST completion record')
+        for nested in NESTED[case]: s.nested(case,nested)
+    return s.execute(execute,setup)
 
 if __name__ == '__main__':
     raise SystemExit(main())

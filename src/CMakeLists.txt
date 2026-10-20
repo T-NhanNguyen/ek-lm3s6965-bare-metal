@@ -167,7 +167,7 @@ endforeach()
 # Prebuilt libc/libgcc attributes are unchanged: the exact linked runtime helper
 # signatures need a separate no-enum-crossing assessment, not warning suppression.
 
-if(LM3S6965_BUILD_BOOT_RESET)
+if(LM3S6965_BUILD_BOOT_RESET OR LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
     include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/boot_crypto.cmake")
     add_library(lm3s6965_boot_verifier STATIC boot_verify.c)
     target_link_libraries(lm3s6965_boot_verifier PUBLIC boot_crypto)
@@ -176,30 +176,90 @@ if(LM3S6965_BUILD_BOOT_RESET)
         ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
     # Explicit dependency repairs archive order for select/launch consumers.
     target_link_libraries(lm3s6965_boot_launch PUBLIC lm3s6965_boot_verifier)
-    add_executable(lm3s6965_boot_reset
+    set(boot_image lm3s6965_boot_reset)
+    set(boot_image_check_options)
+    if(LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+        set(boot_image lm3s6965_boot_dispatch)
+        set(boot_image_check_options --dispatch)
+    endif()
+    add_executable(${boot_image}
         boot_entry/boot_reset_entry.S boot_entry/boot_vectors.c
         boot_entry/boot_decision_entry.c boot_entry/boot_clock_setup.c
         boot_entry/boot_allocation_support.c)
-    target_link_libraries(lm3s6965_boot_reset PRIVATE
+    if(LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+        target_sources(${boot_image} PRIVATE boot_handoff_target.c)
+        target_compile_definitions(${boot_image} PRIVATE LM3S6965_BOOT_DISPATCH_IMAGE=1)
+    endif()
+    target_link_libraries(${boot_image} PRIVATE
         lm3s6965_boot_target_io lm3s6965_boot_verifier boot_crypto)
-    target_compile_options(lm3s6965_boot_reset PRIVATE
+    target_compile_options(${boot_image} PRIVATE
         ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+    if(LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+        # CMP0138 forwards C flags to the real IPO archive + executable probe.
+        # Target link options do not reach it; give only this hosted-main probe
+        # the CPU/runtime specs, not the boot entry or application linker script.
+        if(NOT POLICY CMP0138)
+            message(FATAL_ERROR "Boot dispatch IPO probe requires CMake 3.24 or newer")
+        endif()
+        cmake_policy(PUSH)
+        cmake_policy(SET CMP0138 NEW)
+        include(CheckIPOSupported)
+        set(boot_dispatch_saved_c_flags "${CMAKE_C_FLAGS}")
+        string(JOIN " " boot_dispatch_probe_flags ${LM3S6965_ARCH_FLAGS}
+            --specs=nano.specs --specs=nosys.specs)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${boot_dispatch_probe_flags}")
+        check_ipo_supported(RESULT boot_dispatch_ipo_supported
+            OUTPUT boot_dispatch_ipo_error LANGUAGES C)
+        set(CMAKE_C_FLAGS "${boot_dispatch_saved_c_flags}")
+        unset(boot_dispatch_saved_c_flags)
+        unset(boot_dispatch_probe_flags)
+        cmake_policy(POP)
+        if(NOT boot_dispatch_ipo_supported)
+            message(FATAL_ERROR "Boot dispatch requires IPO support: ${boot_dispatch_ipo_error}")
+        endif()
+        # Dispatch-only Release policy, including every reachable source archive.
+        # Leave the decision configuration and shared crypto configuration intact.
+        set_property(TARGET ${boot_image}
+            lm3s6965_boot_target_io lm3s6965_boot_verifier boot_crypto
+            lm3s6965_boot_flash lm3s6965_boot_sequence lm3s6965_boot_startup
+            lm3s6965_boot_diag_publication lm3s6965_boot_runtime_watchdog
+            lm3s6965_boot_handoff lm3s6965_boot_watchdog lm3s6965_boot_runtime
+            lm3s6965_boot_launch
+            PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+        # The LTO link needs the size policy too, after the default Release -O3.
+        target_link_options(${boot_image} PRIVATE $<$<CONFIG:Release>:-Os>)
+        # Keep real public definitions required by the unchanged image/static
+        # oracles. These roots do not prohibit inlining or introduce dummy code.
+        foreach(symbol IN ITEMS
+            boot_sequence_launch boot_verify_stored _sbrk
+            boot_runtime_watchdog_launch
+            boot_handoff_target_init boot_handoff_target_observe
+            boot_handoff_target_operation boot_handoff_target_terminal_intent
+            boot_startup_prepare boot_startup_begin_dispatch
+            boot_startup_dispatch boot_startup_stop
+            boot_startup_gptm_read boot_startup_gptm_claim
+            boot_startup_gptm_direct_read boot_startup_gptm_direct_write
+            boot_startup_gptm_direct_delay)
+            target_link_options(${boot_image} PRIVATE
+                "$<$<CONFIG:Release>:-Wl,--undefined=${symbol}>")
+        endforeach()
+    endif()
     # Deliberately NOT LM3S6965_LINK_FLAGS: that carries the application script.
-    target_link_options(lm3s6965_boot_reset PRIVATE
+    target_link_options(${boot_image} PRIVATE
         -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -nostartfiles
         --specs=nano.specs --specs=nosys.specs
         "-T${CMAKE_CURRENT_SOURCE_DIR}/../linker/bootloader.ld"
         -Wl,--entry=Boot_Reset_Handler -Wl,--gc-sections
-        "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/lm3s6965_boot_reset.map")
-    set_property(TARGET lm3s6965_boot_reset APPEND PROPERTY LINK_DEPENDS
+        "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${boot_image}.map")
+    set_property(TARGET ${boot_image} APPEND PROPERTY LINK_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/../linker/bootloader.ld")
     find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
-    add_custom_command(TARGET lm3s6965_boot_reset POST_BUILD
+    add_custom_command(TARGET ${boot_image} POST_BUILD
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-boot-reset-image.py"
-            "$<TARGET_FILE:lm3s6965_boot_reset>"
+            "$<TARGET_FILE:${boot_image}>" ${boot_image_check_options}
         COMMENT "Checking exact boot vectors, reset entry and load closure")
-    lm3s6965_add_binary_outputs(lm3s6965_boot_reset)
+    lm3s6965_add_binary_outputs(${boot_image})
 endif()
 
 # The caller supplies a lwIP target exporting its headers, lwipopts.h/arch

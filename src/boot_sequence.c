@@ -1,6 +1,19 @@
 #include "lm3s6965/boot_sequence.h"
+#include "lm3s6965/boot_diag.h"
+#include "lm3s6965/boot_handoff.h"
+#include "lm3s6965/boot_launch.h"
+#include "lm3s6965/boot_reset_handler.h"
+#include "lm3s6965/boot_runtime_watchdog.h"
+#include "lm3s6965/boot_select.h"
+#include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_startup_gptm.h"
+#include "lm3s6965/boot_startup_producer.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_verify.h"
+#include "lm3s6965/boot_watchdog.h"
 
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdint.h>
 
 typedef struct
@@ -59,10 +72,17 @@ void boot_sequence_init(boot_sequence_t *sequence)
 /* Validate only known spans and context starting addresses. Opaque context
  * extents and transitive callback lifetime remain trusted caller obligations. */
 static int arguments(boot_sequence_t *sequence,
-    const boot_sequence_parameters_t *p, boot_launch_decision_t *out)
+    const boot_sequence_parameters_t *p, const void *descriptor,
+    size_t descriptor_size, void *out, size_t out_size,
+    boot_handoff_t *handoff, const boot_handoff_context_t *observed,
+    unsigned launch)
 {
-    if (!aligned(p, _Alignof(boot_sequence_parameters_t)) ||
-        !aligned(out, _Alignof(boot_launch_decision_t))) return 0;
+    if (!aligned(out, launch != 0u ?
+            _Alignof(boot_runtime_watchdog_launch_t) :
+            _Alignof(boot_launch_decision_t))) return 0;
+    if (launch != 0u &&
+        (!aligned(handoff, _Alignof(boot_handoff_t)) ||
+         !aligned(observed, _Alignof(boot_handoff_context_t)))) return 0;
     if (!aligned(p->continuity, _Alignof(boot_startup_t)) ||
         !aligned((const void *)p->diagnostic, _Alignof(uint32_t)) ||
         !aligned(p->producer_io, _Alignof(boot_watchdog_io_t)) ||
@@ -71,18 +91,22 @@ static int arguments(boot_sequence_t *sequence,
         !aligned(p->images, _Alignof(boot_select_images_t)) ||
         p->actual_hz == 0u || p->actual_hz > UINT32_MAX / 5u) return 0;
     const void *objects[] = {sequence, p->continuity,
-        (const void *)p->diagnostic, out};
+        (const void *)p->diagnostic, out, handoff};
     const size_t object_sizes[] = {sizeof *sequence, sizeof *p->continuity,
-        BOOT_DIAG_BYTES, sizeof *out};
-    const void *inputs[] = {p, p->producer_io, p->registers, p->store, p->images};
-    const size_t input_sizes[] = {sizeof *p, sizeof *p->producer_io,
-        sizeof *p->registers, sizeof *p->store, sizeof *p->images};
-    for (unsigned i = 0u; i < 4u; ++i)
+        BOOT_DIAG_BYTES, out_size, sizeof *handoff};
+    const void *inputs[] = {descriptor, p->producer_io, p->registers, p->store,
+        p->images, observed};
+    const size_t input_sizes[] = {descriptor_size, sizeof *p->producer_io,
+        sizeof *p->registers, sizeof *p->store, sizeof *p->images,
+        sizeof *observed};
+    unsigned object_count = launch != 0u ? 5u : 4u;
+    unsigned input_count = launch != 0u ? 6u : 5u;
+    for (unsigned i = 0u; i < object_count; ++i)
     {
-        for (unsigned j = i + 1u; j < 4u; ++j)
+        for (unsigned j = i + 1u; j < object_count; ++j)
             if (overlaps(objects[i], object_sizes[i], objects[j],
                          object_sizes[j])) return 0;
-        for (unsigned j = 0u; j < 5u; ++j)
+        for (unsigned j = 0u; j < input_count; ++j)
             if (overlaps(objects[i], object_sizes[i], inputs[j],
                          input_sizes[j])) return 0;
     }
@@ -94,14 +118,23 @@ static int arguments(boot_sequence_t *sequence,
         p->registers->read == NULL || p->registers->write == NULL ||
         p->store->read == NULL || p->store->erase_page == NULL ||
         p->store->program_word == NULL || p->reader == NULL) return 0;
+    /* External handoff initialization/exclusive ownership is a caller
+     * obligation. Do not copy/reinitialize it or peek/clear its atomic guard;
+     * the protected runtime acquires that guard for the actual transaction. */
+    if (launch != 0u &&
+        (handoff->blocked != 0u || handoff->finished != 0u ||
+         handoff->io.operation == NULL || handoff->io.terminal_intent == NULL ||
+         observed->ipsr != 0u || (observed->control & ~UINT32_C(2)) != 0u ||
+         observed->primask != 1u || observed->faultmask > 1u ||
+         (observed->basepri & ~UINT32_C(0xe0)) != 0u)) return 0;
     const void *contexts[] = {p->registers->context, p->store->context,
-        p->reader_context};
-    for (unsigned i = 0u; i < 3u; ++i)
+        p->reader_context, launch != 0u ? handoff->io.context : NULL};
+    for (unsigned i = 0u; i < 4u; ++i)
     {
         if (contexts[i] == NULL) continue; /* Stateless callbacks are allowed. */
-        for (unsigned j = 0u; j < 4u; ++j)
+        for (unsigned j = 0u; j < object_count; ++j)
             if (overlaps(contexts[i], 1u, objects[j], object_sizes[j])) return 0;
-        for (unsigned j = 0u; j < 5u; ++j)
+        for (unsigned j = 0u; j < input_count; ++j)
             if (overlaps(contexts[i], 1u, inputs[j], input_sizes[j])) return 0;
     }
 #if defined(__arm__) || defined(__thumb__)
@@ -115,8 +148,8 @@ static int arguments(boot_sequence_t *sequence,
     return 1;
 }
 
-boot_sequence_result_t boot_sequence_run(boot_sequence_t *sequence,
-    const boot_sequence_parameters_t *parameters, boot_launch_decision_t *out)
+static inline __attribute__((always_inline)) boot_sequence_result_t run(boot_sequence_t *sequence,
+    const void *parameters, void *out, unsigned launch)
 {
     boot_sequence_result_t result = {0};
     boot_sequence_parameters_t p;
@@ -124,10 +157,17 @@ boot_sequence_result_t boot_sequence_run(boot_sequence_t *sequence,
     boot_store_adapter_t store;
     boot_select_images_t images;
     checked_reset_t reset;
+    boot_handoff_t *handoff = NULL;
+    const boot_handoff_context_t *observed = NULL;
+    boot_handoff_context_t observation = {0};
+    size_t descriptor_size = launch != 0u ?
+        sizeof(boot_sequence_launch_parameters_t) : sizeof p;
+    size_t out_size = launch != 0u ?
+        sizeof(boot_runtime_watchdog_launch_t) : sizeof(boot_launch_decision_t);
     result.status = BOOT_SEQUENCE_ARGUMENT;
     if (!aligned(sequence, _Alignof(boot_sequence_t))) return result;
     /* Even guard acquisition must not modify an aliased output on rejection. */
-    if (out != NULL && overlaps(sequence, sizeof *sequence, out, sizeof *out))
+    if (out != NULL && overlaps(sequence, sizeof *sequence, out, out_size))
         return result;
     if (atomic_flag_test_and_set(&sequence->entered))
     {
@@ -139,8 +179,21 @@ boot_sequence_result_t boot_sequence_run(boot_sequence_t *sequence,
         result.status = BOOT_SEQUENCE_CONSUMED;
         goto leave;
     }
-    if (!arguments(sequence, parameters, out)) goto leave;
-    p = *parameters;
+    if (!aligned(parameters, launch != 0u ?
+            _Alignof(boot_sequence_launch_parameters_t) :
+            _Alignof(boot_sequence_parameters_t))) goto leave;
+    if (launch != 0u)
+    {
+        const boot_sequence_launch_parameters_t snapshot =
+            *(const boot_sequence_launch_parameters_t *)parameters;
+        p = snapshot.common;
+        handoff = snapshot.handoff;
+        observed = snapshot.observed;
+    }
+    else p = *(const boot_sequence_parameters_t *)parameters;
+    if (!arguments(sequence, &p, parameters, descriptor_size, out, out_size,
+            handoff, observed, launch)) goto leave;
+    if (launch != 0u) observation = *observed;
     producer = *p.producer_io;
     store = *p.store;
     images = *p.images;
@@ -158,12 +211,30 @@ boot_sequence_result_t boot_sequence_run(boot_sequence_t *sequence,
         .context = &reset, .read = checked_read, .write = checked_write
     };
     result.stage = BOOT_SEQUENCE_RUNTIME;
-    result.runtime = boot_runtime_watchdog_run(&sequence->bridge,
-        &p.continuity->watchdog, &checked, &store, &images,
-        p.reader, p.reader_context, out);
+    if (launch != 0u)
+        result.runtime = boot_runtime_watchdog_launch(&sequence->bridge,
+            &p.continuity->watchdog, handoff, &observation, &checked, &store,
+            &images, p.reader, p.reader_context, out);
+    else
+        result.runtime = boot_runtime_watchdog_run(&sequence->bridge,
+            &p.continuity->watchdog, &checked, &store, &images,
+            p.reader, p.reader_context, out);
     if (result.runtime.status == BOOT_RUNTIME_WATCHDOG_OK)
         result.status = BOOT_SEQUENCE_OK;
 leave:
     atomic_flag_clear(&sequence->entered);
     return result;
+}
+
+boot_sequence_result_t boot_sequence_run(boot_sequence_t *sequence,
+    const boot_sequence_parameters_t *parameters, boot_launch_decision_t *out)
+{
+    return run(sequence, parameters, out, 0u);
+}
+
+boot_sequence_result_t boot_sequence_launch(boot_sequence_t *sequence,
+    const boot_sequence_launch_parameters_t *parameters,
+    boot_runtime_watchdog_launch_t *out)
+{
+    return run(sequence, parameters, out, 1u);
 }
