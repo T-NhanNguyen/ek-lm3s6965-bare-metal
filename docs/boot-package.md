@@ -1,11 +1,30 @@
-# Offline signed boot packages (demo trust root only)
+# Offline signed boot packages (default demo or explicit public trust root)
 
 `tools/boot/package.py` creates **exactly 160 manifest bytes followed by the exact
 canonical payload**. It does not write flash, manufacture metadata, implement
 an updater, or establish boot/runtime/hardware acceptance. It uses Python 3.9+
 standard library and the existing `openssl` executable; no Python dependencies
-or build-time downloads. The fixed trust root remains
-`config/boot_demo_public_key.h`; there is no key override option.
+or build-time downloads. Without `--public-key`, the trust root remains
+`config/boot_demo_public_key.h`. An explicit public file selects a different
+signing identity; it does not change the device's compiled verification root.
+
+For the corrected **FTP foreground in both slots** fixtures (A breathing PF0,
+B double-blink PF0), see [both-slot metadata workflow](boot-fixture-metadata.md).
+Its separate native tool requires an explicit PUBLIC root, verifies two actual
+packages with the real C verifier, then encodes sequence1 A-current/B-previous
+metadata. It does not modify the packager, retained release42/43 artifacts,
+cross-build defaults or board state. Corrected A44/B45 packages and both metadata
+pages are now generated under ignored `build/rnd-ftp-led-pair/`, with bounded
+offline7pass/0fail/0invalid (five logical representatives/seven configurations).
+Both payloads33532B/packages33692B; see the linked outcome for exact installed
+ranges and limits. Matching-root boot, both packages split into payload/manifest,
+and metadata are now installed: exact101pages/seven writes/98652 bytes verified,
+metadata commit last. One SYSRESETREQ/continue captured state7, successful RUN
+decision and actual A44 verification at base0x8800/size33532 with matching hash.
+This is not B-fallback, physical LED/FTP, retained application startup, watchdog
+timing or dispatch acceptance. The requested decision-stop increment is satisfied;
+bounded application dispatch is next, not implemented here. This docs update
+runs no builds/signing/tests or hardware operations and grants no new authority.
 
 ## Generate one slot-specific artifact
 
@@ -23,8 +42,14 @@ separate output. Changing slot flags, vector addresses or VTOR does **not**
 relocate code. Existing project applications linked at zero are not eligible
 inputs. The repository supplies self-contained slot scripts: `linker/app_a.ld`
 for A and `linker/app_b.ld` for B. Use the selected script for the final link.
-The root application build has no slot selection or slot startup integration.
-The test-only linker fixtures are not usable applications.
+Default root applications remain linked at zero without slot selection.
+The default-OFF [slot-A breathing LED fixture](../examples/boot-breathing-led/README.md)
+now wires inherited continuity startup and `app_a.ld`; its final ELF is an
+explicit `--input-format elf --slot A` input with retained bounded offline
+build/parser/signature/native-verifier acceptance (2026-10-20).
+It is not hardware ready: watchdog-owner integration and accepted dispatch are
+absent. Decision-only boot will not run its LED. The test-only linker fixtures
+are not usable applications.
 
 **GNU ELF producer gate:** pass `-Wl,-z,max-page-size=0x100` on the final
 slot-specific GCC link, in addition to the application's existing link options:
@@ -69,6 +94,66 @@ Do not discard out-of-slot PT_LOAD bytes or relax the parser to accept them.
 
 `--release` is decimal uint32 `0..4294967295`, a label, not anti-downgrade policy.
 `--input-format` is required: no extension-based/autodetected conversion.
+
+## Historical secondary fixture: Ethernet FTP foreground B43 (not corrected pair)
+
+The [Ethernet FTP README](../examples/ethernet-ftp/README.md) supplies exact
+Release build and same-retained-identity signing directions: enable
+`LM3S6965_BUILD_ETHERNET_FTP` and `LM3S6965_FTP_FOREGROUND_OWNER`, select
+`LM3S6965_FTP_FOREGROUND_SLOT=B`, build
+`lm3s6965_ethernet_ftp_foreground`, then package its actual ELF with
+`--input-format elf --slot B --release 43`, explicit retained `--public-key`
+and the already authorized external private-key path. No replacement key is
+needed; output creation is exclusive. Do not overwrite the retained package.
+
+Retained A breathing release42 is payload2784/package2944; B foreground
+release43 is payload33288/package33448. Both use the raw65 public root documented
+below. B package `build/rnd-breathing-led/ethernet-ftp-slot-b-release43.pkg`
+SHA256 is `e6c79dc74442e3c834360c4d06447cc93215a42930c434ffc97c4c3f0d3ea91c`.
+Foreground-only `--entry=Application_Reset_Handler` now makes captured B ELF
+entry/vector/defined continuity FUNC agree at Thumb `0x24bdd`. Authenticated
+payload and package are unchanged: ELF header/HEX start metadata correction
+required no re-signing, and the package was not overwritten.
+
+Original B gate completed7pass/0fail/0invalid, five logical representatives,
+including actual selected-root signature/hash checks and native MbedTLS
+acceptance plus payload/signature tamper rejects8/4. Subsequent entry acceptance
+is offline static adjudication, not fresh crypto/native execution; historical
+0pass/0productfail/3invalid whole-HEX-identity guard stop remains preserved.
+Prebuilt modeled owner/clock passes do not establish current-source freshness;
+standalone tests do not prove full inherited Ethernet/FTP/watchdog runtime.
+
+Future B payload `[0x24000,0x2c208)` rounds to erase
+`[0x24000,0x2c400)`33pages; manifest160 `[0x3f400,0x3f4a0)` resides in erase
+page `[0x3f400,0x3f800)`. These historical B43 ranges are informational, not
+write authority or the corrected B45 extent. Metadata was absent at this
+checkpoint; corrected44/45 pages are now generated as linked above. Both pages
+`[0x8000,0x8400)` and `[0x8400,0x8800)` were covered by the later completed
+A44/B45 installation, with normal conditional decision writes allowed. The
+matching selected-root boot is installed and A44 RUN decision observed, as linked
+above; decision-only boot still cannot launch either fixture. Bounded application
+dispatch is the next separate objective. Packages remain transport artifacts, not
+contiguous flash images. Further execution belongs to test-merit-gate.
+
+## Explicit public trust root (optional)
+
+Add `--public-key /absolute/path/to/authorized-public.sec1` to either ELF or raw
+packaging commands to select an authorized root. The file must contain **exactly
+65 raw binary bytes**, uncompressed SEC1 `04 || X || Y` for P-256: not PEM, DER,
+hex text, or a compressed point. Both coordinates must be below the field prime
+and the point must lie on P-256. Validation is read-only and creates no header.
+The selected point must exactly equal the public point OpenSSL derives from the
+private key. Missing, malformed, wrong-curve or mismatching selection fails
+before output creation; there is **no fallback to the demo root**. A public-file
+alias of the private key is rejected before reading it. Public files need no
+secret custody modes; private-key requirements below remain unchanged.
+
+Python callers may use `package(input_path, output, slot, release, key,
+input_format, public_key=None)` and `validate_key(key, public_key=None)`, with
+`Path` arguments for files. The new trailing optional parameter preserves all
+existing positional calls. `None` means the fixed demo header, not discovery.
+A selected root must independently match the intended device build; packaging
+success is not provisioning or verification on that device.
 
 ## Engineering input contract: ELF
 
@@ -231,13 +316,14 @@ a regular nonsymlink file, mode 0600, with a mode-0700 containing directory.
 Encrypted keys are not supported (explicit empty password, no prompt).
 OpenSSL checks the key, derives **only public SPKI DER**, requires the named
 P-256 OID/65-byte uncompressed SEC1 encoding, and compares that public point
-with the fixed header. Wrong P-256 keys, other curves, explicit-parameter keys
-and malformed keys fail. Python never reads, exports, copies or logs private
+with the selected public file, or the fixed demo header when omitted. Wrong
+P-256 identities, other curves, explicit-parameter keys and malformed keys fail. Python never reads, exports, copies or logs private
 bytes; OpenSSL alone reads the original external file. Tool stderr is not
 forwarded, and failures avoid logging key paths. Tests generate wrong-curve
 and wrong-identity private keys directly through OpenSSL into temporary external
-0700 directories and clean them up; the authorized existing demo key is reused,
-not regenerated or modified.
+0700 directories and clean them up. New selected-root tests likewise generate
+only ephemeral external keys; they never read the existing demo private key.
+Legacy demo signing tests optionally reuse that key, not regenerate or modify it.
 
 Outputs must not already exist, including dangling symlinks. Input/key paths
 and aliases cannot be overwritten; private-key input aliases are refused before
@@ -249,7 +335,7 @@ Failures clean up the temporary file and leave no partial destination. Filesyste
 support for hard links is required; there is no unsafe overwrite fallback.
 This is atomic visibility, **not a filesystem/power-loss durability guarantee**.
 
-Use stable, trusted local directories and do not mutate input, key, header or
+Use stable, trusted local directories and do not mutate input, private/public key, header or
 parent directories during the command. This is not a hostile concurrent
 filesystem/key-management service; path checks are not a defense against an
 account owner replacing a key or directories during signing. Private key paths
@@ -295,6 +381,63 @@ with those skips is **not** full round-trip evidence. Tests require OpenSSL;
 no keys/toolchains/dependencies are silently downloaded. Bare-metal CMake still
 returns before native Python/CLI configuration, preserving ARM archive builds.
 
-These are host interoperability/rejection checks, not target final-link/32 KiB
-fit, allocator/stack/timing/watchdog evidence or flash/lifecycle/runtime/FTP
-acceptance. Independent review is the next gate for this increment.
+Selected-root regression cases are provided in `SelectedRootTests`: A/B Python
+and CLI signatures checked independently with OpenSSL message-input SHA-256,
+malformed/missing/mismatched selections with no output or fallback, default-root
+compatibility, and retained custody/alias rejection. The fixed-demo C verifier
+is deliberately not used to accept a different root. `PayloadTests` also retains
+a high-S acceptance regression (DER-to-raw decoder acceptance only).
+
+**Focused selected-root/package gate (2026-10-20): 15 passed, 0 failed, 0
+skipped, 0 invalid.** The executed subset was all 9 `PayloadTests`, all 3
+`SelectedRootTests`, and `SigningSafetyTests.test_external_path_policy`,
+`.test_wrong_keys`, and `.test_output_and_signing_failures`, in one local
+Python/OpenSSL configuration. This was a no-build subset, **not the full Python
+or native suites**, and did not execute the native verifier, real linked ELF
+producer, ARM build or hardware. Positive default-root compatibility and injected
+signing failures were partly mocked; OpenSSL signing and message verification
+are not independent cryptographic implementations. Historical results remain
+separate. Further test execution belongs to test-merit-gate.
+
+Only fresh **ephemeral external keys** were generated and cleaned up for that
+15-case gate; the existing demo private key was not accessed. That gate remains
+historical and separate from the later fixture acceptance below.
+
+### Retained breathing fixture — bounded offline acceptance
+
+The [slot-A breathing STATUS LED fixture](../examples/boot-breathing-led/README.md)
+now uses repository-mapped PF0 and an externally retained persistent RnD pair.
+Its corrected gate completed **7 passing outcomes / 0 failures / 0 invalid,
+five logical representatives**, not physical tests: exact actual ELF/BIN/HEX
+producer fidelity, pure host PWM envelope, actual selected-root signature,
+native real MbedTLS accept plus payload/signature tamper rejects, and fresh
+ARM boot static closure. Native output was `verified slot A release 42 payload
+2784`; the two rejection statuses were 8 and 4. This selected-root native build
+is distinct from the default-demo verifier and earlier no-build 15-case gate.
+
+The application payload is **2784 bytes**; release **42** package
+`build/rnd-breathing-led/fixture-a-release42-corrected.pkg` is **2944 bytes**
+(manifest160 + payload2784), SHA256
+`2715d8d43074a8e9597d5b6de9c1c81bc026f8b949662db81410f79821f03ea0`.
+The raw65 public root at `build/rnd-breathing-led/public.sec1` has SHA256
+`960d06c1aaa1206cf37ce8e8b0cd002dfa441b9324e25c8c5a0735651f12c389`.
+At this historical A42 checkpoint the separately rebuilt **31100-byte** boot
+was not installed and metadata was not generated. That board-state claim is now
+superseded by the matching-root A44/B45 installation and successful A44 RUN
+decision linked above; A42 itself is not the installed payload. The `.pkg` is not
+directly flashable. Historical A42 prospective ranges remain in the fixture
+README; none authorizes writes.
+
+Unfiltered objcopy had included a zero-size SRAM `.data` endpoint, producing
+a roughly 512 MiB BIN. Only this fixture's producer was corrected: validate
+ELF, select uniquely named nonempty allocated sections by file-backed FLASH
+LMA, reject ambiguous mappings, exclude empty/NOBITS sections and gap-fill FF.
+Canonical payload/BIN/independent PT_LOAD and decoded HEX equality then passed;
+no shared helper or parser relaxation was used. The original blocked run and
+later invalid Reset_Handler-absence oracle remain historical, not product
+failures silently relabeled as passes.
+
+These are offline interoperability/static checks, not physical LED, clock,
+watchdog timing/service, flash/lifecycle/runtime/FTP or deployment acceptance.
+Decision-only boot cannot dispatch this application; no blind watchdog feed was
+added. Further execution belongs to separately authorized test-merit-gate.

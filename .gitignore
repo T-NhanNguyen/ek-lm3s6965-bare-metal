@@ -49,6 +49,13 @@ compile_commands.json
 .pi/
 
 # ---------------------------------------------------------------------------
+# Personal learning frontend (motion-graphics visual curriculum).
+# Local-only teaching artifact: zero-dependency static HTML/CSS/JS.
+# Start it with: motion-lab/serve.sh
+# ---------------------------------------------------------------------------
+/motion-lab/
+
+# ---------------------------------------------------------------------------
 # Secrets and machine-local configuration -- never commit these.
 # ---------------------------------------------------------------------------
 .env

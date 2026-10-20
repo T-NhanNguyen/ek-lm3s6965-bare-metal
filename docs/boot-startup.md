@@ -5,14 +5,40 @@ The default standalone Ethernet/FTP path retains its cold PLL setup and
 reinitializable SysTick clock. The opt-in foreground path now switches from a
 startup-only GPTM to application SysTick as described below. A setup-only
 physical WDT/Timer2 producer and physical RESC/flash/reader adapters now exist.
-No production reset caller invokes the assembled sequence. Integration remains
-blocked on authorized board/crystal and clock/layout inputs, an authorized public
-root, physical timing evidence, and complete protected **32 KiB** fit. These
+An experimental [boot-only reset image](boot-reset-image.md) invokes the shared
+sequence once and stops at the decision, without dispatch. It is default-OFF,
+not deployable: integration still requires authorized physical layout/write
+inputs, deployment-grade trust and timing evidence. The compact-crypto Release
+image now has bounded **32 KiB** static fit (31100 bytes, 1668 spare); the older
+overflow remains historical, not current. These
 adapters do not establish production readiness. Complete producer shutdown,
 candidate 60-second deadline intent/reset actuation, and accepted-reset
 actuation/grace remain **DEFERRED**. There is no new grace constant or enabled
 inert deadline API. QEMU executes real ARM/core/startup code with explicitly
 modeled WDT, RCC/RCC2/time and absent peripheral sources, not physical timing.
+
+## Offline LED payload fixture (default OFF)
+
+The [slot-A breathing LED fixture](../examples/boot-breathing-led/README.md)
+uses the existing inherited application entry and retained-region linker
+contract without changing launch/handoff or enabling interrupts. It does not
+provide the Ethernet/timer/FTP progress required by the foreground watchdog
+owner, so it deliberately does not feed and is **not hardware ready**. Current
+decision-only boot cannot dispatch it. The corrected offline gate retained
+**7 passing outcomes, five logical representatives**: actual 2784-byte application
+producer fidelity, pure host PWM envelope, release-42 selected-root signature,
+native real C acceptance/two tamper rejects, and fresh 31100-byte boot static
+closure. These are not physical tests or sustained breathing acceptance.
+The rebuilt root SHA256 `960d06c1aaa1206cf37ce8e8b0cd002dfa441b9324e25c8c5a0735651f12c389`
+is now installed with the corrected FTP foreground A44/B45 pair and metadata,
+not the historical standalone A42 payload. One SYSRESETREQ/continue captured
+state7 and successful verified A44 RUN decision; see the
+[installed outcome](boot-fixture-metadata.md). This is not dispatch or retained
+startup/application-initialization acceptance. Physical LED/network execution,
+B fallback and watchdog timing remain pending. No startup continuity or
+watchdog-owner contract was relaxed; no manual feed/freeze was added. Bounded
+application dispatch is next, not implemented by this documentation. See the
+fixture README for retained historical A42 artifacts and producer correction.
 
 ## Owned native SRAM ABI
 
@@ -126,8 +152,10 @@ Physical RESC/flash/reader adapters and descriptor assembly are available in
 `src/boot_target_io.c`. Wiring a production reset caller, authorizing the public
 root and board clock/layout, deployment, physical timing and complete protected
 32 KiB link/fit remain separate work.
-The current verifier still uses its explicitly nonproduction demo public root;
-archive compilation is not verification acceptance or a production boot image.
+Default verifier builds still use the explicitly nonproduction demo public root;
+the opt-in reset image requires an explicit selected public root. The retained
+breathing-root build is offline evidence only, not the installed board identity.
+Archive compilation is not verification acceptance or a production boot image.
 Test execution/acceptance is deferred to test-merit-gate.
 
 ## Reset versus entry, and consumable provenance
