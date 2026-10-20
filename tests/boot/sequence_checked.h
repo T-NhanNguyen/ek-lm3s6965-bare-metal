@@ -8,7 +8,7 @@ static boot_sequence_launch_parameters_t launch_params;
 static boot_runtime_watchdog_launch_t launch_out, launch_sentinel;
 static unsigned launching, published, transfers, adapter_calls, adapter_writes;
 static int checked_is_launching(void) { return launching!=0; }
-static unsigned fault_kind, nested_checks, mutate_inputs, mutated;
+static unsigned fault_kind, nested_checks, mutate_inputs, mutated, wdt_at_capture;
 static uint32_t enabled[2], pending[2], active[2], icsr, systick, vtor;
 static struct { char op; uint32_t a, v; } adapter_trace[4096];
 static unsigned an, operation_count, terminal_count, fault_end_an, fault_end_n;
@@ -147,6 +147,7 @@ boot_watchdog_result_t sequence_observe_transfer(boot_watchdog_t *w,uint32_t epo
 }
 static void checked_fresh(void) {
     launching=1; published=transfers=adapter_calls=adapter_writes=fault_kind=nested_checks=mutate_inputs=mutated=an=0;
+    wdt_at_capture=0;
     operation_count=terminal_count=fault_end_an=fault_end_n=0; memset(operation_values,0,sizeof operation_values);
     memset(&target,0,sizeof target); memset(&handoff,0,sizeof handoff);
     model_oracle(); systick=0; vtor=0; /* Genuine reset: no COUNTFLAG fiction. */
@@ -188,9 +189,17 @@ static void expect_event(char op,uint32_t address,uint32_t value) {
     ++oracle_cursor;
 }
 static void expect_observation(void) { expect_event('O',0,0); }
+static void expect_banks_pend(uint32_t pend0) {
+    expect_event('R',0xe000e180,0);
+    expect_event('R',0xe000e280,pend0);
+    expect_event('R',0xe000e300,0);
+    expect_event('R',0xe000e184,0);
+    expect_event('R',0xe000e284,0);
+    expect_event('R',0xe000e304,0);
+    expect_event('R',0xe000ed04,0);
+}
 static void expect_banks(void) {
-    const uint32_t addresses[]={0xe000e180,0xe000e280,0xe000e300,0xe000e184,0xe000e284,0xe000e304,0xe000ed04};
-    for(unsigned j=0;j<7;++j) expect_event('R',addresses[j],0);
+    expect_banks_pend(0);
 }
 static void expect_sources(void) {
     /* Independently enumerated boot-only source allowlist; retained clock
@@ -206,7 +215,31 @@ static void expect_clear(uint32_t address,uint32_t mask) {
     expect_observation(); expect_banks(); expect_event('W',address,mask);
     expect_event('R',address,0); expect_banks();
 }
+static void expect_clear_pend(uint32_t address,uint32_t mask,uint32_t pre,uint32_t post) {
+    /* Pre-clear full-bank gate allows live WDT PEND0 0x40000 (IRQ18 disabled);
+     * the ICPR write clears it, post-clear is strict zero. Never WDTICR. */
+    expect_observation(); expect_banks_pend(pre); expect_event('W',address,mask);
+    expect_event('R',address,0); expect_banks_pend(post);
+}
+static void exact_adapter_trace_wdt(void) {
+    const uint32_t WDT=0x40000u; /* IRQ18 PEND0 bit */
+    oracle_cursor=0; expect_observation(); expect_banks_pend(WDT); expect_event('R',0xe000e010,0);
+    expect_sources(); expect_event('B',BOOT_HANDOFF_TARGET_EXCLUDE,0); expect_observation();
+    expect_observation(); expect_event('R',0xe000e010,0);
+    expect_event('W',0xe000e010,0); expect_event('R',0xe000e010,0);
+    expect_clear_pend(0xe000e180,0xffffffff,WDT,WDT); expect_clear_pend(0xe000e184,0xfff,WDT,WDT);
+    expect_observation(); expect_sources(); expect_banks_pend(WDT);
+    expect_observation(); expect_banks_pend(WDT); expect_event('W',0xe000ed04,0x0a000000); expect_event('R',0xe000ed04,0);
+    expect_clear_pend(0xe000e280,0xffffffff,WDT,0); expect_clear(0xe000e284,0xfff);
+    expect_observation(); expect_event('B',BOOT_HANDOFF_TARGET_SYNC,0); expect_observation(); expect_sources(); expect_banks();
+    expect_observation(); expect_event('W',0xe000ed08,BOOT_SLOT_A_BASE); expect_event('R',0xe000ed08,BOOT_SLOT_A_BASE);
+    expect_observation(); expect_event('B',BOOT_HANDOFF_TARGET_SYNC,0); expect_observation(); expect_sources(); expect_banks();
+    expect_event('R',0xe000ed08,BOOT_SLOT_A_BASE);
+    expect_observation(); expect_sources(); expect_banks(); expect_event('R',0xe000e010,0); expect_event('R',0xe000ed08,BOOT_SLOT_A_BASE);
+    CHECK(oracle_cursor==an);
+}
 static void exact_adapter_trace(void) {
+    if (wdt_at_capture) { exact_adapter_trace_wdt(); return; }
     oracle_cursor=0; expect_observation(); expect_banks(); expect_event('R',0xe000e010,0);
     expect_sources(); expect_event('B',BOOT_HANDOFF_TARGET_EXCLUDE,0); expect_observation();
     expect_observation(); expect_event('R',0xe000e010,0);
@@ -336,6 +369,23 @@ static int checked_case(const char *name) {
     checked_fresh();
     if(!strcmp(name,"launch-admission-cross-api")) admission();
     else if(!strcmp(name,"launch-authentic-prepare")) checked_success(launch_invoke());
+    else if(!strcmp(name,"target-wdt-pending-exempt")) {
+        /* Live WDT pending at capture with IRQ18 disabled: exempt at capture
+         * and pre-clear gates, cleared via NVIC ICPR, strict zero after. */
+        pending[0]=0x40000u; wdt_at_capture=1;
+        CHECK(enabled[0]==0 && active[0]==0);
+        checked_success(launch_invoke());
+        CHECK(target.pending[0]==0x40000u && pending[0]==0u);
+    }
+    else if(!strcmp(name,"target-other-pending-reject")) {
+        /* Non-WDT bank0 pending must stay fail-closed: no writes, no exclude. */
+        pending[0]=0x20000u;
+        boot_sequence_result_t r=launch_invoke();
+        CHECK(target.pending[0]==0x20000u);
+        CHECK(!adapter_writes && target.next==0 && operation_count==1 && !terminal_count);
+        for(unsigned j=0;j<an;++j) CHECK(adapter_trace[j].op!='B');
+        checked_failure(r,0);
+    }
     else {
         if(!strcmp(name,"target-w1c-irq43")) { fault_kind=1; enabled[1]=pending[1]=active[1]=0x800; }
         else if(!strcmp(name,"target-hib-gate-failclosed")) fault_kind=2;

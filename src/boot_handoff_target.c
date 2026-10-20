@@ -26,6 +26,7 @@
 #define IMC UINT32_C(0x400fe054)
 #define FCIM UINT32_C(0x400fd010)
 #define FMC UINT32_C(0x400fd008)
+#define WDT_PENDING UINT32_C(0x40000) /* IRQ18 PEND0 bit: live WDT exempt iff IRQ18 disabled */
 #define WDTCTL UINT32_C(0x40000008)
 #define WDTRIS UINT32_C(0x40000010)
 #define TIMER2 UINT32_C(0x40032000)
@@ -164,6 +165,22 @@ static int banks_idle(boot_handoff_target_t *t)
     }
     return matches(t, ICSR, CORE_PENDING, 0u);
 }
+/* Pre-clear gate: live WDT (IRQ18, PEND0 0x40000) exempt while IRQ18 stays
+ * disabled; enables/active/ICSR remain strict zero. Pending is cleared later
+ * via NVIC ICPR (UNPEND0 write), never WDTICR. Post-clear gates stay strict. */
+static int banks_idle_pre(boot_handoff_target_t *t)
+{
+    uint32_t v;
+    for (unsigned i = 0u; i < 2u; ++i) {
+        uint32_t mask = i == 0u ? UINT32_MAX : BANK1_MASK;
+        uint32_t allow = i == 0u ? WDT_PENDING : 0u;
+        if (!read_reg(t, DIS0 + 4u*i, &v) || (v & mask) != 0u) return 0;
+        if (!read_reg(t, UNPEND0 + 4u*i, &v) || ((v & mask) & ~allow) != 0u)
+            return 0;
+        if (!read_reg(t, ACTIVE0 + 4u*i, &v) || (v & mask) != 0u) return 0;
+    }
+    return matches(t, ICSR, CORE_PENDING, 0u);
+}
 
 /* Closed boot-only source allowlist, not a general peripheral shutdown.
  * SPMS144I pp214-215,220-222,229-230: defined RCGC fields only;
@@ -209,7 +226,8 @@ static int capture(boot_handoff_target_t *t)
 {
     if (!observe(t, &t->original)) return 0;
     /* Capture every bank before any destructive clear; even rejected inherited
-     * activity remains visible in boot-local diagnostics. No allowed boot IRQs. */
+     * activity remains visible in boot-local diagnostics. Only live WDT pending
+     * (IRQ18, PEND0 0x40000, IRQ18 disabled) is exempt; all other IRQs zero. */
     for (unsigned i = 0u; i < 2u; ++i) {
         if (!read_reg(t, DIS0 + 4u*i, &t->enables[i]) ||
             !read_reg(t, UNPEND0 + 4u*i, &t->pending[i]) ||
@@ -217,7 +235,7 @@ static int capture(boot_handoff_target_t *t)
     }
     if (!read_reg(t, ICSR, &t->icsr) || !read_reg(t, STCTRL, &t->systick))
         return 0;
-    if (t->enables[0] || t->pending[0] || t->active[0] ||
+    if (t->enables[0] || (t->pending[0] & ~WDT_PENDING) || t->active[0] ||
         ((t->enables[1] | t->pending[1] | t->active[1]) & BANK1_MASK) ||
         (t->icsr & CORE_PENDING) || (t->systick & 3u)) return 0;
     boot_watchdog_t *w = &t->continuity->watchdog;
@@ -247,21 +265,30 @@ static int apply(boot_handoff_target_t *t, boot_handoff_operation_t op,
                 write_reg(t, STCTRL, v & ~UINT32_C(3)) &&
                 matches(t, STCTRL, 3u, 0u);
         case BOOT_HANDOFF_DISABLE_BANK0:
-        case BOOT_HANDOFF_DISABLE_BANK1:
-        case BOOT_HANDOFF_CLEAR_BANK0_PENDING:
-        case BOOT_HANDOFF_CLEAR_BANK1_PENDING: {
-            unsigned bank = op == BOOT_HANDOFF_DISABLE_BANK1 ||
-                op == BOOT_HANDOFF_CLEAR_BANK1_PENDING;
-            uint32_t a = op == BOOT_HANDOFF_DISABLE_BANK0 ||
-                op == BOOT_HANDOFF_DISABLE_BANK1 ? DIS0 : UNPEND0;
+        case BOOT_HANDOFF_DISABLE_BANK1: {
+            unsigned bank = op == BOOT_HANDOFF_DISABLE_BANK1;
             uint32_t mask = bank ? BANK1_MASK : UINT32_MAX;
-            return banks_idle(t) && write_reg(t, a + 4u*bank, mask) &&
-                matches(t, a + 4u*bank, mask, 0u) && banks_idle(t);
+            /* Pre/post full-bank gates allow live WDT pending: ICER writes do
+             * not clear pending; ICPR clear comes later. Per-bank strict zero
+             * is still enforced via the matches() read-back. */
+            return banks_idle_pre(t) && write_reg(t, DIS0 + 4u*bank, mask) &&
+                matches(t, DIS0 + 4u*bank, mask, 0u) && banks_idle_pre(t);
+        }
+        case BOOT_HANDOFF_CLEAR_BANK0_PENDING: {
+            /* Pre-clear allows WDT pending; NVIC ICPR write clears it, then
+             * post-clear is strict zero including WDT. Never touches WDTICR. */
+            return banks_idle_pre(t) && write_reg(t, UNPEND0, UINT32_MAX) &&
+                matches(t, UNPEND0, UINT32_MAX, 0u) && banks_idle(t);
+        }
+        case BOOT_HANDOFF_CLEAR_BANK1_PENDING: {
+            /* WDT (bank0) already cleared; both gates strict. */
+            return banks_idle(t) && write_reg(t, UNPEND0 + 4u, BANK1_MASK) &&
+                matches(t, UNPEND0 + 4u, BANK1_MASK, 0u) && banks_idle(t);
         }
         case BOOT_HANDOFF_QUIESCE_SOURCES:
-            return sources_idle(t) && banks_idle(t);
+            return sources_idle(t) && banks_idle_pre(t);
         case BOOT_HANDOFF_CLEAR_CORE_PENDING:
-            return banks_idle(t) && write_reg(t, ICSR, CORE_CLEAR) &&
+            return banks_idle_pre(t) && write_reg(t, ICSR, CORE_CLEAR) &&
                 matches(t, ICSR, CORE_PENDING, 0u);
         case BOOT_HANDOFF_BARRIER_BEFORE_VTOR:
         case BOOT_HANDOFF_BARRIER_AFTER_VTOR:
