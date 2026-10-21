@@ -23,11 +23,24 @@ add_library(lm3s6965_ftp_platform OBJECT
     "${PROJECT_SOURCE_DIR}/src/startup.c"
     "${PROJECT_SOURCE_DIR}/src/system_control.c"
     "${PROJECT_SOURCE_DIR}/src/gpio.c"
+    "${PROJECT_SOURCE_DIR}/src/led.c"
     "${PROJECT_SOURCE_DIR}/src/ethernet.c")
 target_link_libraries(lm3s6965_ftp_platform PUBLIC
     lm3s6965_headers lm3s6965_ftp_lwip)
 target_compile_options(lm3s6965_ftp_platform PRIVATE
     ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
+
+set(LM3S6965_FTP_FIRMWARE_RECEIVE OFF CACHE BOOL
+    "Opt-in Ethernet receive to stored-firmware mapping (STOR firmware/confirm, RETR boot-status via ftp_boot alongside RAM hello). Requires production flash/receiver/publication/sources plus verifier/crypto closure; without them the image keeps RAM-only hello.")
+if(LM3S6965_FTP_FIRMWARE_RECEIVE)
+    # No fake updater: the production consumer must override the weak
+    # ftp_firmware_receive_production_config hook with real objects and link
+    # its verifier/crypto closure; refusal or NULL keeps RAM-only fallback.
+    target_sources(lm3s6965_ftp_platform PRIVATE ftp_firmware_receive.c)
+    target_compile_definitions(lm3s6965_ftp_platform PRIVATE
+        LM3S6965_FTP_FIRMWARE_RECEIVE=1)
+    target_link_libraries(lm3s6965_ftp_platform PRIVATE lm3s6965_ftp_boot)
+endif()
 
 lm3s6965_add_ftp_tcp_library(lm3s6965_ftp_tcp lm3s6965_ftp_lwip)
 # main.c binds caller-owned RAM storage before transport startup.
@@ -85,6 +98,14 @@ if(LM3S6965_FTP_FOREGROUND_OWNER)
     target_link_libraries(lm3s6965_ftp_foreground_platform PUBLIC
         lm3s6965_headers lm3s6965_ftp_headers lm3s6965_ftp_lwip
         lm3s6965_boot_startup)
+    if(LM3S6965_FTP_FIRMWARE_RECEIVE)
+        target_sources(lm3s6965_ftp_foreground_platform PRIVATE
+            ftp_firmware_receive.c)
+        target_compile_definitions(lm3s6965_ftp_foreground_platform PRIVATE
+            LM3S6965_FTP_FIRMWARE_RECEIVE=1)
+        target_link_libraries(lm3s6965_ftp_foreground_platform PRIVATE
+            lm3s6965_ftp_boot)
+    endif()
     target_compile_options(lm3s6965_ftp_foreground_platform PRIVATE
         ${LM3S6965_COMPILE_FLAGS} ${LM3S6965_OPTIMIZATION_FLAGS})
     add_executable(lm3s6965_ethernet_ftp_foreground)

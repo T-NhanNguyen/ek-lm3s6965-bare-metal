@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate this fixture's unsigned slot-A bin/hex from nonempty flash loads."""
+"""Generate this fixture's unsigned slot-B bin/hex from nonempty flash loads."""
 import argparse
 from pathlib import Path
 import re
@@ -7,15 +7,15 @@ import struct
 import subprocess
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from tools.boot.package import BASES, MAX_PAYLOAD, PackageError, elf_payload, read_input, require
 
 
 def flash_sections(data):
-    # Reuse the bounded ELF validator: rejects file-backed loads outside slot A,
+    # Reuse the bounded ELF validator: rejects file-backed loads outside slot B,
     # ambiguous section/load mappings, malformed tables and non-SRAM NOBITS.
     # SRAM VMA with FLASH LMA (.data) is valid; RAM NOLOAD is not image content.
-    elf_payload(data, BASES["A"])
+    elf_payload(data, BASES["B"])
     phoff, shoff = struct.unpack_from("<II", data, 28)
     phnum = struct.unpack_from("<H", data, 44)[0]
     shnum, shstr = struct.unpack_from("<HH", data, 48)
@@ -38,8 +38,8 @@ def flash_sections(data):
                    and off == seg_off + addr - vma]
         require(len(matches) == 1, "image section missing unique file-backed load")
         lma = matches[0]
-        require(BASES["A"] <= lma and lma + size <= BASES["A"] + MAX_PAYLOAD,
-                "image section LMA outside slot-A payload")
+        require(BASES["B"] <= lma and lma + size <= BASES["B"] + MAX_PAYLOAD,
+                "image section LMA outside slot-B payload")
         # objcopy section selectors are patterns, not indices. Reject ambiguous
         # names (including duplicates shared with excluded/empty sections).
         require(re.fullmatch(rb"[A-Za-z0-9_.]+", name) is not None
@@ -62,7 +62,7 @@ def main():
             subprocess.run([args.objcopy, "--gap-fill=0xff", *sections,
                             "-O", fmt, str(args.elf), str(output)], check=True)
     except (PackageError, OSError, subprocess.CalledProcessError) as exc:
-        print("slot-A images: " + str(exc), file=sys.stderr)
+        print("slot-B images: " + str(exc), file=sys.stderr)
         return 1
     return 0
 

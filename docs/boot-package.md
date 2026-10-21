@@ -43,7 +43,7 @@ relocate code. Existing project applications linked at zero are not eligible
 inputs. The repository supplies self-contained slot scripts: `linker/app_a.ld`
 for A and `linker/app_b.ld` for B. Use the selected script for the final link.
 Default root applications remain linked at zero without slot selection.
-The default-OFF [slot-A breathing LED fixture](../examples/boot-breathing-led/README.md)
+The default-OFF [slot-A breathing LED fixture](../examples/ab-boot-demo/slot-a-breathing/README.md)
 now wires inherited continuity startup and `app_a.ld`; its final ELF is an
 explicit `--input-format elf --slot A` input with retained bounded offline
 build/parser/signature/native-verifier acceptance (2026-10-20).
@@ -405,7 +405,7 @@ historical and separate from the later fixture acceptance below.
 
 ### Retained breathing fixture — bounded offline acceptance
 
-The [slot-A breathing STATUS LED fixture](../examples/boot-breathing-led/README.md)
+The [slot-A breathing STATUS LED fixture](../examples/ab-boot-demo/slot-a-breathing/README.md)
 now uses repository-mapped PF0 and an externally retained persistent RnD pair.
 Its corrected gate completed **7 passing outcomes / 0 failures / 0 invalid,
 five logical representatives**, not physical tests: exact actual ELF/BIN/HEX

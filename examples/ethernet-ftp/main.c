@@ -7,6 +7,9 @@
 #include "lm3s6965/ftp_tcp.h"
 #include "lm3s6965/ftp_core.h"
 #include "lm3s6965/ram_file.h"
+#if defined(LM3S6965_FTP_FIRMWARE_RECEIVE)
+#include "ftp_firmware_receive.h"
+#endif
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)
@@ -14,6 +17,8 @@
 #include "fixture_led.h"
 #include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_startup_gptm.h"
+#else
+#include "led.h"
 #endif
 
 #if LWIP_VERSION_MAJOR != 2 || LWIP_VERSION_MINOR != 2 || LWIP_VERSION_REVISION != 1
@@ -48,6 +53,9 @@ int main(void)
     }
     /* Explicit cold-boot policy only; link/session cleanup preserves data. */
     ftp_core_reset();
+    /* Firmware-receive bind happens after ready/clock/netif below: the
+     * production hook requires C_READY with a real clock, so an early bind
+     * here would always observe ENTERED and keep RAM-only hello. */
 
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)
     /* Validate the clock while masked and publish APP; no service evidence
@@ -85,11 +93,26 @@ int main(void)
         fail_closed();
     }
 #endif
+#if !defined(LM3S6965_FTP_FOREGROUND_OWNER)
+    /* Trivial example-LED copy: PF0 only (Ethernet retains PF2/PF3).
+     * Clock (PLL/SysTick) and watchdog ownership above are unchanged. */
+    user_led_initialize();
+    user_led_write(false);
+#endif
     lwip_init();
     if (lm3s_netif_initialize(clock_hz, sys_now()) != ERR_OK)
     {
         fail_closed();
     }
+#if defined(LM3S6965_FTP_FIRMWARE_RECEIVE)
+    /* Post-ready bind onto the shared singleton: STOR firmware/confirm plus
+     * RETR boot-status via ftp_boot, alongside the unchanged RAM hello
+     * storage above. Production supplies the real flash/receiver/publication
+     * /sources through the production hook; NULL or refusal keeps RAM-only
+     * hello (fallback, no quarantine). Still quiescent: no transport start
+     * or foreground turn has run yet. Never touches any watchdog. */
+    (void)ftp_firmware_receive_bind(ftp_firmware_receive_production_config());
+#endif
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)
     /* Networking now uses SysTick only. Release precisely the adapter-named
      * GPTM after lwIP/netif init; never guess Timer0 or stop an unknown source. */
@@ -106,9 +129,19 @@ int main(void)
     }
 #else
     bool transport_started = false;
+    /* Trivial example-LED heartbeat: PF0 toggles every 500 ms of SysTick
+     * time. Non-blocking; no FTP/Ethernet, clock or watchdog logic changes. */
+    uint32_t led_last_ms = sys_now();
+    bool led_on = false;
     for (;;)
     {
         const uint32_t now = sys_now();
+        if (net_clock_elapsed(now, led_last_ms, 500u))
+        {
+            led_last_ms = now;
+            led_on = !led_on;
+            user_led_write(led_on);
+        }
         lm3s_netif_service(now);
         if (!lm3s_netif_ready())
         {
@@ -121,9 +154,10 @@ int main(void)
         sys_check_timeouts();
         /* Services retained TCP prefixes and at most ONE optional operation
          * step, outside raw callbacks, after Ethernet and timers. This image
-         * binds RAM hello only: no boot/controller/running-provenance startup
-         * objects or reset actuator exist here. An updater must supply those
-         * and bind ftp_boot_operation explicitly; do not enable a fake one. */
+         * binds RAM hello only unless LM3S6965_FTP_FIRMWARE_RECEIVE wired the
+         * explicit production bind above: no boot/controller/running-
+         * provenance startup objects or reset actuator exist here. An updater
+         * must supply those; do not enable a fake one. */
         (void)ftp_tcp_service(sys_now());
     }
 #endif

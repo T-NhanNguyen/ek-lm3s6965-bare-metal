@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 GCC = Path('/Users/nhan/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin/arm-none-eabi-gcc')
 BIN = GCC.parent
 CC = Path('/usr/bin/clang')
-HOST_CASES = ('launch-authentic-prepare', 'launch-admission-cross-api', 'target-w1c-irq43',
+HOST_CASES = ('launch-authentic-prepare', 'launch-admission-cross-api',
+              'target-wdt-pending-exempt', 'target-other-pending-reject', 'target-w1c-irq43',
               'target-hib-gate-failclosed', 'target-io-failure-poison', 'target-terminal-reentry-poison')
 DISPATCH = ('boot_sequence_launch', 'boot_runtime_watchdog_launch', 'boot_handoff_target_init',
             'boot_handoff_target_observe', 'boot_handoff_target_operation',
@@ -49,6 +50,8 @@ FIXTURES = ('sequence_host.c', 'sequence_checked.h', 'flash_model.c', 'flash_mod
 NESTED = {
     'launch-authentic-prepare': ['signed-A', 'one-transaction', 'full-intent', 'W1C-write-readback-barriers', 'EMPTY-PREPARED-DISPATCHING'],
     'launch-admission-cross-api': ['descriptor-tail', 'handoff-observation', 'observation-continuity', 'output-tail-diagnostic', 'context-descriptor', 'unmasked', 'callback-BUSY-both', 'snapshot', 'CONSUMED-both', 'decision-first'],
+    'target-wdt-pending-exempt': ['IRQ18-disabled-inactive', 'WDT-pending-capture', 'capture-preclear-exemption', 'NVIC-ICPR-clear', 'strict-zero-after-clear'],
+    'target-other-pending-reject': ['non-WDT-pending-capture', 'no-writes', 'no-exclude-barriers', 'first-operation-only', 'no-terminal', 'BOOT-poison'],
     'target-w1c-irq43': ['model-W1C-WO-oracle', 'IRQ43-capture', 'no-destructive-effects'],
     'target-hib-gate-failclosed': ['RCGC0-read', 'no-HIB-access', 'BOOT-poison', 'no-later-effects'],
     'target-io-failure-poison': ['effected-VTOR', 'no-next-event', 'BOOT-poison', 'no-later-effects'],

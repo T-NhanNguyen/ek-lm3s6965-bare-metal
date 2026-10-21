@@ -1,9 +1,20 @@
 # Offline slot-A breathing STATUS LED fixture
 
+> Moved from `examples/boot-breathing-led` to
+> `examples/ab-boot-demo/slot-a-breathing` (checked-application-handoff
+> trace). Content below is the retired fixture README, preserved.
+
 **Default OFF; bounded offline acceptance complete. Not hardware ready.** The installed
 boot image is decision-only: it does not dispatch this application. Building,
 packaging or placing a payload in slot A cannot make that boot run the LED.
 This fixture adds no launch/handoff changes, metadata, provisioning or boot writes.
+
+The commands below build the LED-only target; no public key or verifier is
+required. The separate `lm3s6965_ab_ftp_a` production receiver variant is built
+only with `LM3S6965_BUILD_AB_BOOT_DEMO_FTP=ON` in addition to the demo option.
+Its production closure requirements are in the [demo README](../README.md).
+The offline outcome and no-service boundary below describe the LED-only target,
+not that FTP variant.
 
 ## Pin and software PWM
 
@@ -52,7 +63,7 @@ expiry/reset is expected unless a separately reviewed owner integration exists;
 the retained startup timer may also expire. Sustained physical breathing is
 therefore **not accepted or hardware ready**, even if this payload links.
 Correct continuity closure may substantially exceed 1 KiB; do not replace it
-with cold startup to chase size. See [startup contract](../../docs/boot-startup.md).
+with cold startup to chase size. See [startup contract](../../../docs/boot-startup.md).
 
 ## Retained offline outcome (2026-10-20)
 
@@ -95,13 +106,13 @@ cmake -S . -B /tmp/lm3s6965-breathing-led \
   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-lm3s6965.cmake \
   -DCMAKE_BUILD_TYPE=Release -DLM3S6965_BUILD_BOOT_BREATHING_LED=ON
 cmake --build /tmp/lm3s6965-breathing-led --target lm3s6965_boot_breathing_led
-cc -std=c11 -Wall -Wextra -Werror examples/boot-breathing-led/test_pwm_envelope.c \
+cc -std=c11 -Wall -Wextra -Werror examples/ab-boot-demo/slot-a-breathing/test_pwm_envelope.c \
   -o /tmp/lm3s6965-pwm-envelope
 /tmp/lm3s6965-pwm-envelope
 ```
 
 Final ELF (no `.elf` suffix):
-`/tmp/lm3s6965-breathing-led/examples/boot-breathing-led/lm3s6965_boot_breathing_led`.
+`/tmp/lm3s6965-breathing-led/examples/ab-boot-demo/slot-a-breathing/lm3s6965_boot_breathing_led`.
 The same directory receives `.map`, `.bin` and `.hex`. These outputs are not
 signed packages. The fixture-local `generate-slot-a-images.py` validates the ELF
 with the existing packager parser, then passes explicit `--only-section` arguments
@@ -128,7 +139,7 @@ A key-free parser-only check for that exact artifact is available for the gate:
 python3 - <<'PY'
 from pathlib import Path
 from tools.boot.package import canonical_payload, read_input
-elf = Path('/tmp/lm3s6965-breathing-led/examples/boot-breathing-led/lm3s6965_boot_breathing_led')
+elf = Path('/tmp/lm3s6965-breathing-led/examples/ab-boot-demo/slot-a-breathing/lm3s6965_boot_breathing_led')
 payload = canonical_payload(read_input(elf), 'A', 'elf')
 print('Validated slot-A canonical payload bytes:', len(payload))
 PY
@@ -136,7 +147,7 @@ PY
 
 The retained signing used that exact path as `--input`,
 `--input-format elf --slot A --release 42`, the explicitly selected public root
-and retained external key, per [packaging](../../docs/boot-package.md).
+and retained external key, per [packaging](../../../docs/boot-package.md).
 This documentation accesses no key and grants no new signing authority. Offline
 signature acceptance is not dispatch, service-gap, clock, hardware or sustained-LED
-acceptance. See also [decision-only boot](../../docs/boot-reset-image.md).
+acceptance. See also [decision-only boot](../../../docs/boot-reset-image.md).

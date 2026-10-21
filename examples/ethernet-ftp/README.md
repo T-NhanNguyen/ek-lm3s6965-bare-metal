@@ -112,7 +112,7 @@ the default-demo native verifier cannot accept this different root.
 
 ## Historical retained offline inventory (2026-10-20; superseded by pair44/45)
 
-Slot A is the [breathing fixture](../boot-breathing-led/README.md): release42,
+Slot A is the [breathing fixture](../ab-boot-demo/slot-a-breathing/README.md): release42,
 payload2784/package2944. Slot B is this existing foreground application:
 release43, payload**33288**/package**33448**. Both use
 `build/rnd-breathing-led/public.sec1`, SHA256

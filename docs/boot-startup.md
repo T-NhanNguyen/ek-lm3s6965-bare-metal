@@ -19,7 +19,7 @@ modeled WDT, RCC/RCC2/time and absent peripheral sources, not physical timing.
 
 ## Offline LED payload fixture (default OFF)
 
-The [slot-A breathing LED fixture](../examples/boot-breathing-led/README.md)
+The [slot-A breathing LED fixture](../examples/ab-boot-demo/slot-a-breathing/README.md)
 uses the existing inherited application entry and retained-region linker
 contract without changing launch/handoff or enabling interrupts. It does not
 provide the Ethernet/timer/FTP progress required by the foreground watchdog
@@ -149,13 +149,16 @@ continuity EMPTY and publishes only a terminal owned RUN decision, **not**
 launch/handoff/prepare/dispatch permission. Do not chain `_launch` afterward.
 
 Physical RESC/flash/reader adapters and descriptor assembly are available in
-`src/boot_target_io.c`. Wiring a production reset caller, authorizing the public
-root and board clock/layout, deployment, physical timing and complete protected
-32 KiB link/fit remain separate work.
+`src/boot_target_io.c`. The opt-in reset image wires the shared sequence to a
+reset caller; the compact-crypto Release image has the bounded 32 KiB static
+fit recorded above. Production authorization, deployment and physical timing
+acceptance remain separate from that static result.
 Default verifier builds still use the explicitly nonproduction demo public root;
-the opt-in reset image requires an explicit selected public root. The retained
-breathing-root build is offline evidence only, not the installed board identity.
-Archive compilation is not verification acceptance or a production boot image.
+the opt-in reset image requires an explicit selected public root. The historical
+breathing-root build was offline evidence; the installed selected-root A44/B45
+outcome is recorded above. Neither result establishes dispatch or sustained
+application execution. Archive compilation alone is not verification acceptance
+or a production boot image.
 Test execution/acceptance is deferred to test-merit-gate.
 
 ## Reset versus entry, and consumable provenance

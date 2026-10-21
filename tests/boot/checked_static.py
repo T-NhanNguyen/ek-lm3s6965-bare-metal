@@ -565,7 +565,10 @@ def division_dependency(rows):
             memory.append((pc,op,args)); continue
         if op not in scalar: raise Invalid('unsupported division dependency '+hex(pc)+' '+op)
         require(not re.search(r'\b(sp|pc)\b',args),'division scalar cannot construct stack/PC dependency')
-        if op!='cmp': require(args.split(', ',1)[0]!='r2','division result pointer remains invariant')
+        # UMULL writes both RdLo and RdHi; checking only the first operand
+        # would let its high result silently replace the caller result pointer.
+        destinations=[] if op=='cmp' else [part.strip() for part in args.split(',')[:2 if op=='umull' else 1]]
+        require('r2' not in destinations,'division result pointer remains invariant')
         if not re.fullmatch(r'[r0-9a-fxipls#, \-]+',args):
             raise Invalid('unsupported scalar division operand '+hex(pc))
     return {'memory':memory,'branch_edges':edges,'scope':'memory independence, not quotient correctness'}
@@ -1225,6 +1228,11 @@ def static_witness_selfchecks():
         'division independent stack/result boundary and CFG records')
     reject('division ordinary-pointer substitution','result pointer remains invariant',
         lambda:division_dependency([*divide[:2],(0x7000,'mov','r2, r0'),*divide[2:]]))
+    for operands in ('r2, r3, r0, r1','r3, r2, r0, r1'):
+        reject('division UMULL result-pointer clobber','result pointer remains invariant',
+            lambda:division_dependency([*divide[:2],(0x7000,'umull',operands),*divide[2:]]))
+    oracle(division_dependency([*divide[:2],(0x7000,'umull','r3, r4, r2, r1'),*divide[2:]])==
+           division_dependency(divide),'division UMULL may read invariant pointer without writing it')
     reject('division unknown load','unsupported division dependency',
         lambda:division_dependency([*divide[:2],(0x7000,'ldr','r0, [r3]'),*divide[2:]]))
     reject('division stack loop','never repeats frame allocation',

@@ -332,8 +332,45 @@ def entry_cfg(rows,dispatch):
             'terminal_failure_edges':reject_edges,'nonfailure_selectors':selectors,'transaction':launch}
 
 
+def entry_location(registers,text,pc):
+    """Resolve the supported decoded addressing forms, including writeback."""
+    m=re.fullmatch(r'\[(\w+)(?:, #(-?(?:0x[0-9a-f]+|\d+)))?\](!)?(?:, #(-?\d+))?',text)
+    if not m: raise Invalid('unresolved entry addressing '+text)
+    base=((pc+4)&~3) if m[1]=='pc' else registers.get(m[1])
+    if base is None: raise Invalid('unresolved entry address base '+m[1])
+    off=int(m[2] or '0',0); address=base+off
+    if m[3]: registers[m[1]]=address
+    if m[4]: registers[m[1]]=base+int(m[4])
+    return address
+
+
+def entry_memory_control(pc,op,args,registers,flags,load,store,events,jump):
+    """Shared entry instruction semantics; return False for other instructions.
+
+    Memory callbacks enforce the caller's provenance policy. jump resolves a
+    taken target against the caller's instruction map; flags are current NZCV.
+    """
+    if op in ('dmb','dsb','isb'):
+        if args not in ('sy','ish'): raise Invalid('unsupported entry barrier scope '+args)
+        events.append(('barrier',pc,op,args))
+    elif op in ('ldr','str','ldrb','strb','ldrh','strh'):
+        dst,addr=args.split(', ',1); address=entry_location(registers,addr,pc)
+        width=1 if op.endswith('b') else 2 if op.endswith('h') else 4
+        if op.startswith('ldr'): registers[dst]=load(address,width)
+        else: store(address,registers[dst],width)
+    elif op in ('cbz','cbnz'):
+        register,dest=args.split(', ',1); value=registers[register]
+        if value is None: raise Invalid('unresolved entry CBZ input')
+        if (value==0)==(op=='cbz'): jump(int(dest.split()[0],16),'entry CBZ leaves symbol')
+    elif op=='b' or re.fullmatch(r'b(eq|ne|cs|hs|cc|lo|hi|ls|ge|gt|le|lt|pl|mi)',op):
+        if op=='b' or arm_condition(flags,op[1:]):
+            jump(int(args.split()[0],16),'unresolved entry branch '+args)
+    else: return False
+    return True
+
+
 def entry_selfchecks():
-    """Literal architectural expectations, never computed by the interpreter."""
+    """Exercise actual shared semantics against independent literal expectations."""
     from checked_support import oracle
     for listed in ('{r7, fp, lr}','{lr, r11, r7}'):
         registers={'sp':0x30010000,'r7':0x77,'r11':0xbb,'lr':0xee}; stores=[]
@@ -416,32 +453,52 @@ def entry_selfchecks():
         try: publication_barriers(bad,state)
         except Failure as exc: oracle(str(exc)=='fresh DMB before checkpoint publication','barrier control reason')
         else: raise Invalid('missing/moved/wrong barrier admitted')
-    # Deliberate interpreter-corruption controls. Handwritten literals below
-    # are independent of the interpreter above; SUT-derived values forbidden.
-    oracle(arm_condition((False,True,True,False),'eq') is True and
-           arm_condition((False,True,True,False),'ne') is False,
-           'interpreter branch expectation: EQ taken and NE not-taken when Z set')
-    try: oracle([{'pc':0x100,'taken':True}]==[{'pc':0x100,'taken':False}],
-                 'interpreter branch expectation: taken versus not-taken outcomes differ')
-    except Invalid: oracle(True,'interpreter branch expectation: corrupted branch outcome rejected')
-    else: raise Invalid('interpreter branch corruption admitted')
-    oracle({8:5,16:1}!=({8:1,16:5}),
-           'interpreter field-offset expectation: +8 wrapper-status distinct from +16 nested-runtime')
-    try: oracle({8:1,16:5}=={8:5,16:1},
-                 'interpreter field-offset expectation: swapped +8/+16 must not match')
-    except Invalid: oracle(True,'interpreter field-offset expectation: swapped field-offset corruption rejected')
-    else: raise Invalid('interpreter field-offset corruption admitted')
-    oracle(bytes(range(8))==bytes([0,1,2,3,4,5,6,7]),
-           'interpreter copy expectation: complete poison bytes preserved in order')
-    try: oracle(bytes([0,1,2,3,4,5,6,9])==bytes(range(8)),
-                 'interpreter copy expectation: substituted final byte must not match')
-    except Invalid: oracle(True,'interpreter copy expectation: substituted-byte copy corruption rejected')
-    else: raise Invalid('interpreter copy corruption admitted')
-    oracle(True,'interpreter barrier-recording expectation: fresh DMB precedes checkpoint store')
-    try: oracle([('barrier',0x6c38,'dsb','sy')]==[('barrier',0x6c38,'dmb','sy')],
-                 'interpreter barrier-recording expectation: DSB must not satisfy DMB requirement')
-    except Invalid: oracle(True,'interpreter barrier-recording expectation: wrong-barrier corruption rejected')
-    else: raise Invalid('interpreter barrier-recording corruption admitted')
+    # Small instruction stimuli use the same memory/control dispatcher as the
+    # linked-entry interpreter. They test these semantics, not full CFG/ELF or
+    # full-runner acceptance. Expectations remain independently written literals.
+    instructions=[(0x100,'ldr','r2, [r0, #8]'),(0x102,'ldr','r3, [r0, #16]')]
+    for offset in range(8):
+        instructions.extend([(0x104+offset*4,'ldrb',f'r6, [r4, #{offset}]'),
+                             (0x106+offset*4,'strb',f'r6, [r5, #{offset}]')])
+    instructions.extend([(0x124,'dmb','sy'),(0x128,'str','r7, [r8, #0]'),
+                         (0x12a,'beq','200'),(0x12c,'bne','204')])
+    def observe(stimulus):
+        registers={'r0':0x1000,'r2':None,'r3':None,'r4':0x1100,'r5':0x1200,
+                   'r6':None,'r7':11,'r8':0x1300}
+        memory=dict(enumerate(bytes([0,1,2,3,4,5,6,7]),0x1100))
+        memory.update(dict(enumerate(struct.pack('<I',5),0x1008)))
+        memory.update(dict(enumerate(struct.pack('<I',1),0x1010)))
+        events=[]; targets=[]
+        def load(address,width):
+            return int.from_bytes(bytes(memory[address+j] for j in range(width)),'little')
+        def store(address,value,width):
+            for j in range(width): memory[address+j]=(value>>(j*8))&255
+            events.append(('store',pc,address,width,value))
+        for pc,op,args in stimulus:
+            oracle(entry_memory_control(pc,op,args,registers,(False,True,True,False),
+                   load,store,events,lambda address,reason:targets.append(address)),
+                   'selfcheck instruction has shared semantics')
+        return registers,memory,events,targets
+    def expectations(observed):
+        registers,memory,events,targets=observed
+        oracle((registers['r2'],registers['r3'])==(5,1),'interpreter field-offset expectation: instruction LDR +8/+16')
+        oracle(bytes(memory.get(0x1200+j,255) for j in range(8))==bytes([0,1,2,3,4,5,6,7]),
+               'interpreter copy expectation: instruction byte-copy')
+        oracle(('barrier',0x124,'dmb','sy') in events,'interpreter barrier-recording expectation: instruction DMB')
+        publication_barriers(events,0x1300)
+        oracle(targets==[0x200],'interpreter branch expectation: instruction EQ/NE taken-target')
+    expectations(observe(instructions))
+    for old,new,reason in (
+        ((0x100,'ldr','r2, [r0, #8]'),(0x100,'ldr','r2, [r0, #16]'),'interpreter field-offset expectation: instruction LDR +8/+16'),
+        ((0x120,'ldrb','r6, [r4, #7]'),(0x120,'ldrb','r6, [r4, #6]'),'interpreter copy expectation: instruction byte-copy'),
+        ((0x124,'dmb','sy'),(0x124,'dsb','sy'),'interpreter barrier-recording expectation: instruction DMB'),
+        ((0x12a,'beq','200'),(0x12a,'bne','200'),'interpreter branch expectation: instruction EQ/NE taken-target')):
+        oracle(old in instructions,'corruption stimulus replaces an actual instruction')
+        observed=observe([new if row==old else row for row in instructions])
+        try: expectations(observed)
+        except Invalid as exc:
+            oracle(str(exc)=='oracle selfcheck: '+reason,reason+' corruption rejected for intended reason')
+        else: raise Invalid('instruction corruption admitted: '+reason)
 
 def entry_gate(session,elf,dis,dispatch):
     names=('STARTING','CLOCK_FAILED','FLASH_FAILED','IMAGES_FAILED','BIND_FAILED','SEQUENCE_FAILED','DECISION',
@@ -590,14 +647,11 @@ def entry_gate(session,elf,dis,dispatch):
         def known(value,why):
             if value is None: raise Invalid('unresolved entry '+why)
             return value
-        def location(text,pc):
-            m=re.fullmatch(r'\[(\w+)(?:, #(-?(?:0x[0-9a-f]+|\d+)))?\](!)?(?:, #(-?\d+))?',text)
-            if not m: raise Invalid('unresolved entry addressing '+text)
-            base=((pc+4)&~3) if m[1]=='pc' else known(regs.get(m[1]),'address base '+m[1])
-            off=int(m[2] or '0',0); a=base+off
-            if m[3]: regs[m[1]]=a
-            if m[4]: regs[m[1]]=base+int(m[4])
-            return a
+        def location(text,pc): return entry_location(regs,text,pc)
+        def jump(address,reason):
+            nonlocal i
+            if address not in bypc: raise Invalid(reason)
+            i=bypc[address]
         def load(a,width=4):
             values=[memory.get(a+j) for j in range(width)]
             if all(a+j in memory for j in range(width)):
@@ -661,9 +715,7 @@ def entry_gate(session,elf,dis,dispatch):
             if re.fullmatch(r'it[te]{0,3}',op):
                 if pending_it: raise Invalid('nested IT')
                 pending_it=it_slots(op,args); continue
-            if op in ('dmb','dsb','isb'):
-                if args not in ('sy','ish'): raise Invalid('unsupported entry barrier scope '+args)
-                events.append(('barrier',pc,op,args)); continue
+            if entry_memory_control(pc,op,args,regs,cmp,load,store,events,jump): continue
             if op=='nop': continue
             if op in ('mov','movs','movw','movt','mvn','mvns'):
                 dst,src=args.split(', ',1); value=number(src)
@@ -724,11 +776,6 @@ def entry_gate(session,elf,dis,dispatch):
                     y=((y>>shift)|(y<<(32-shift)))&0xffffffff
                 else: y=number(b)
                 cmp=flags(None if x is None or y is None else x&y,None,cmp[3] if cmp else None) if op=='tst' else arithmetic_flags(x,y,op=='cmp')
-            elif op in ('ldr','str','ldrb','strb','ldrh','strh'):
-                dst,addr=args.split(', ',1); a=location(addr,pc)
-                width=1 if op.endswith('b') else 2 if op.endswith('h') else 4
-                if op.startswith('ldr'): regs[dst]=load(a,width)
-                else: store(a,regs[dst],width)
             elif op in ('ldrd','strd'):
                 first,second,addr=args.split(', ',2); a=location(addr,pc)
                 if op=='ldrd': regs[first],regs[second]=load(a),load(a+4)
@@ -756,19 +803,6 @@ def entry_gate(session,elf,dis,dispatch):
             elif op=='bx':
                 if args!='lr': raise Invalid('unsupported indirect return')
                 return_from_callee(known(regs['lr'],'BX return'))
-            elif op in ('cbz','cbnz'):
-                register,dest=args.split(', ',1); value=known(regs[register],'CBZ input')
-                take=(value==0)==(op=='cbz')
-                if take:
-                    address=int(dest.split()[0],16)
-                    if address not in bypc: raise Invalid('entry CBZ leaves symbol')
-                    i=bypc[address]
-            elif op=='b' or re.fullmatch(r'b(eq|ne|cs|hs|cc|lo|hi|ls|ge|gt|le|lt|pl|mi)',op):
-                take=op=='b' or cond(op[1:])
-                if take:
-                    address=int(args.split()[0],16)
-                    if address in bypc: i=bypc[address]
-                    else: raise Invalid('unresolved entry branch '+args)
             elif op in ('bl','blx'):
                 if op=='blx':
                     pointer=known(number(args),'indirect call pointer')

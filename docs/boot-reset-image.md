@@ -149,7 +149,7 @@ execution, retained startup/application initialization and watchdog timing remai
 pending. At that checkpoint, separately bounded application dispatch was not
 implemented or authorized. The opt-in integration above does not extend that
 physical acceptance. The standalone release42
-[breathing fixture](../examples/boot-breathing-led/README.md) and its offline
+[breathing fixture](../examples/ab-boot-demo/slot-a-breathing/README.md) and its offline
 results remain historical, not the installed A44 payload.
 
 ### Earlier compact-crypto gate (retained)
