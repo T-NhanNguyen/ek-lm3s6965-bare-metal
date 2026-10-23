@@ -1,4 +1,6 @@
 #include "net_clock_port.h"
+
+#include <stdbool.h>
 #include <stdint.h>
 
 bool net_clock_port_masked_thread(void)

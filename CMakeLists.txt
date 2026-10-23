@@ -33,6 +33,9 @@ if(LM3S6965_BUILD_AB_BOOT_DEMO_FTP AND NOT LM3S6965_BUILD_AB_BOOT_DEMO)
     message(FATAL_ERROR "A/B demo FTP images require LM3S6965_BUILD_AB_BOOT_DEMO=ON (or its legacy alias)")
 endif()
 
+option(LM3S6965_FTP_DIAGNOSTIC
+    "Retain software-tick AUTH/abort evidence for the measured FTP experiment" OFF)
+
 option(LM3S6965_BUILD_ETHERNET_FTP "Build the opt-in bare-metal lwIP FTP example" OFF)
 option(LM3S6965_FTP_FOREGROUND_OWNER
     "Build RAM FTP slot application with inherited foreground watchdog ownership" OFF)

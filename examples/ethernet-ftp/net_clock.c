@@ -1,11 +1,19 @@
 #include "net_clock.h"
+
+#include <stdbool.h>
+#if defined(LM3S6965_FTP_FOREGROUND_OWNER)
+#include <stddef.h>
+#endif
+#include <stdint.h>
+
+#include "lwip/sys.h"
 #include "memory_map.h"
 
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)
+#include "fixture_led.h"
 #include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_startup_gptm.h"
 #include "net_clock_port.h"
-#include "fixture_led.h"
 static uint32_t startup_elapsed_ms;
 static bool initialized;
 #endif

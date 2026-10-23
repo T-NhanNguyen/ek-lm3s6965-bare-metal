@@ -1,5 +1,16 @@
 #include "lm3s6965/boot_target_io.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_flash.h"
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_reset_handler.h"
+#include "lm3s6965/boot_select.h"
+#include "lm3s6965/boot_sequence.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_verify.h"
+
 #define TARGET_RESC UINT32_C(0x400fe05c)
 #define TARGET_MHZ UINT32_C(1000000)
 

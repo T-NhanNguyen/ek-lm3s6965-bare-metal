@@ -15,9 +15,12 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 CASES = {
-    'owner': ['owner_completed_turn_sequence', 'owner_timer_reentry_quarantines',
+    'owner': ['owner_completed_turn_sequence', 'owner_health_progression',
+              'owner_timer_reentry_quarantines',
               'owner_partial_report_failure_no_retry', 'owner_ambiguous_feed_no_retry',
-              'owner_watchdog_read_reentry_stops_before_icr'],
+              'owner_watchdog_read_reentry_stops_before_icr',
+              'owner_network_failure_after_health7', 'owner_fatal_listener_failure',
+              'owner_ftp_service_failure', 'owner_watchdog_report_failure_health'],
     'clock': ['c_ready_validated_before_app', 'systick_admission_rejects_unsafe_core',
               'systick_poststart_pending_fails_closed', 'systick_offset_no_retained_io',
               'gptm_explicit_timer_claim_configuration', 'gptm_unknown_or_enabled_never_stops_timer',

@@ -1,6 +1,11 @@
 /* Target-only boundary. Compile separately into boot and authenticated slots. */
 #include "lm3s6965/boot_startup.h"
 
+#include <stdint.h>
+
+#include "lm3s6965/boot_handoff.h"
+#include "lm3s6965/boot_verify.h"
+
 _Noreturn void boot_startup_terminal(uint32_t, uint32_t, uint32_t);
 _Noreturn void boot_startup_stop(void)
 {

@@ -78,7 +78,7 @@ class HarnessConfigTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(runner.identity_excluded(name))
         for name in ("tests/boot/test_resource_execution.py", "src/boot_receive.c",
-                     "tests/harness/manifest.json", "docs/boot-receive.md"):
+                     "tests/harness/manifest.json", "docs/boot-reset-image.md"):
             with self.subTest(name=name):
                 self.assertFalse(runner.identity_excluded(name))
 

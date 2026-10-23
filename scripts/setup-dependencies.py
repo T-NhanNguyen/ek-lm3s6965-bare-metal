@@ -210,7 +210,7 @@ def main():
         return setup(Path(__file__).resolve().parents[1], args.check, args.mbedtls_archive)
     except (SetupError, OSError, tarfile.TarError, ValueError) as error:
         print(f'Dependency setup refused/failed: {error}\nNo existing sources reset or removed. '
-              'Inspect reported paths manually; see docs/dependencies.md.', file=sys.stderr)
+              'Inspect reported paths manually; see docs/toolchain.md.', file=sys.stderr)
         return 2
 
 

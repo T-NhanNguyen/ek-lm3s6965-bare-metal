@@ -12,6 +12,7 @@ static char trace[128];
 static size_t count;
 static unsigned reports, services, starts;
 static bool link_ready, recurse_timer, busy_report;
+static bool netif_service_fail, ftp_service_fail;
 static err_t start_result = ERR_OK;
 static uint32_t expected_epoch, expected_feeds;
 static ip4_addr_t address;
@@ -26,7 +27,7 @@ static void before_work(void)
     CHECK(boot_startup_continuity.watchdog.evidence == 0);
 }
 bool lm3s_netif_service(uint32_t ms)
-{ CHECK(ms == sys_now()); before_work(); event('E'); return true; }
+{ CHECK(ms == sys_now()); before_work(); event('E'); return !netif_service_fail; }
 bool lm3s_netif_ready(void) { return link_ready; }
 const ip4_addr_t *lm3s_netif_address(void) { return &address; }
 err_t ftp_tcp_start(const ip4_addr_t *a)
@@ -40,7 +41,7 @@ void sys_check_timeouts(void)
     }
 }
 bool ftp_tcp_service(uint32_t ms)
-{ CHECK(ms == sys_now()); before_work(); event('F'); return true; }
+{ CHECK(ms == sys_now()); before_work(); event('F'); return !ftp_service_fail; }
 static boot_watchdog_result_t observed_report(boot_watchdog_t *w,
     uint32_t epoch, uint32_t predicate, unsigned complete)
 {
@@ -158,6 +159,34 @@ static int run_case(int argc, char **argv)
             CHECK(c->clock.context == clock.context && c->clock.read == clock.read);
         }
         CHECK(starts == 2);
+    } else if (!strcmp(argv[1], "owner_health_progression")) {
+        boot_diag_t diag; boot_diag_context_t context;
+        /* Turn 0: link down -> APP only. */
+        clear_turn(); link_ready = false; start_result = ERR_OK;
+        model()->us += 1000;
+        CHECK(foreground_owner_turn());
+        CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+        CHECK(diag.health == BOOT_DIAG_HEALTH_APP && diag.stage == BOOT_DIAG_STAGE_STARTUP);
+        /* Turn 1: link up, listener allocation fails -> APP|ETHERNET. */
+        clear_turn(); link_ready = true; start_result = ERR_MEM;
+        model()->us += 1000;
+        CHECK(foreground_owner_turn());
+        CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+        CHECK(diag.health == (BOOT_DIAG_HEALTH_APP | BOOT_DIAG_HEALTH_ETHERNET) && diag.stage == BOOT_DIAG_STAGE_STARTUP);
+        /* Turn 2: listener retry succeeds -> APP|ETHERNET|FTP. */
+        clear_turn(); link_ready = true; start_result = ERR_OK;
+        model()->us += 1000;
+        CHECK(foreground_owner_turn());
+        CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+        CHECK(diag.health == BOOT_DIAG_HEALTH_MASK && diag.stage == BOOT_DIAG_STAGE_STARTUP);
+        /* Turn 3: readiness loss -> APP only again (current listening). */
+        clear_turn(); link_ready = false;
+        model()->us += 1000;
+        CHECK(foreground_owner_turn());
+        CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+        CHECK(diag.health == BOOT_DIAG_HEALTH_APP && diag.stage == BOOT_DIAG_STAGE_STARTUP);
+        CHECK(starts == 2);
+        return 0;
     } else {
         clear_turn();
         if (!strcmp(argv[1], "owner_timer_reentry_quarantines")) {
@@ -184,6 +213,48 @@ static int run_case(int argc, char **argv)
             CHECK(!strcmp(trace, "ETFRRRW") && reports == 3 && services == 1);
             CHECK(model()->feeds == 1 && c->watchdog.epoch == 9);
             CHECK(c->watchdog.blocked && c->watchdog.evidence == 0);
+        } else if (!strcmp(argv[1], "owner_network_failure_after_health7")) {
+            boot_diag_t diag; boot_diag_context_t context;
+            /* Establish health 7 on a successful turn. */
+            clear_turn(); link_ready = true; start_result = ERR_OK;
+            model()->us += 1000;
+            CHECK(foreground_owner_turn());
+            CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+            CHECK(diag.health == BOOT_DIAG_HEALTH_MASK);
+            /* Network service failure must conservatively publish APP only. */
+            clear_turn(); netif_service_fail = true;
+            model()->us += 1000;
+            CHECK(!foreground_owner_turn());
+            CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+            CHECK(diag.health == BOOT_DIAG_HEALTH_APP);
+            CHECK(diag.stage == BOOT_DIAG_STAGE_STARTUP);
+            return 0;
+        } else if (!strcmp(argv[1], "owner_fatal_listener_failure")) {
+            boot_diag_t diag; boot_diag_context_t context;
+            clear_turn(); link_ready = true; start_result = ERR_VAL;
+            model()->us += 1000;
+            CHECK(!foreground_owner_turn());
+            CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+            CHECK(diag.health == BOOT_DIAG_HEALTH_APP);
+            CHECK(diag.stage == BOOT_DIAG_STAGE_STARTUP);
+            return 0;
+        } else if (!strcmp(argv[1], "owner_ftp_service_failure")) {
+            boot_diag_t diag; boot_diag_context_t context;
+            clear_turn(); link_ready = true; start_result = ERR_OK; ftp_service_fail = true;
+            model()->us += 1000;
+            CHECK(!foreground_owner_turn());
+            CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+            CHECK(diag.health == BOOT_DIAG_HEALTH_APP);
+            CHECK(diag.stage == BOOT_DIAG_STAGE_STARTUP);
+            return 0;
+        } else if (!strcmp(argv[1], "owner_watchdog_report_failure_health")) {
+            boot_diag_t diag; boot_diag_context_t context;
+            clear_turn(); busy_report = true;
+            CHECK(!foreground_owner_turn());
+            CHECK(boot_diag_publication_snapshot(&c->publication, &diag, &context) == BOOT_DIAG_PUBLICATION_OK);
+            CHECK(diag.health == BOOT_DIAG_HEALTH_APP);
+            CHECK(diag.stage == BOOT_DIAG_STAGE_STARTUP);
+            return 0;
         } else CHECK(0);
         sticky();
     }

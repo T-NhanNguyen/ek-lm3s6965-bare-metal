@@ -14,6 +14,7 @@
 #include "netif/ethernet.h"
 #include "lm3s6965/ftp_tcp.h"
 #include "lm3s6965/ftp_core.h"
+#include "lm3s6965/ftp_diagnostic.h"
 #include "lm3s6965/ram_file.h"
 #ifdef FTP_BOOT_BINDING_TEST
 #include "ftp_boot_fixture.h"
@@ -242,10 +243,20 @@ static void pools_empty(void)
 #ifdef FTP_BOOT_BINDING_TEST
 /* Five bounded classes; each uses the production core, raw adapter and real
  * signed verifier/controller/store fixtures through the in-memory peer. */
+#if LM3S6965_FTP_DIAGNOSTIC
+static uint32_t diagnostic_clock(void *context)
+{
+    (void)context;
+    return sys_now();
+}
+#endif
 static ftp_boot_t *boot_device(const ip4_addr_t *ip, bool trial, uint16_t port)
 {
     ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty(); arp();
     ftp_boot_t *b = ftp_boot_fixture_init(trial);
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_clock(diagnostic_clock, NULL);
+#endif
     assert(ftp_core_bind_operation(ftp_boot_operation(b)));
     assert(ftp_tcp_start(ip) == ERR_OK); login(port);
     return b;
@@ -357,6 +368,15 @@ static void boot_cases(const ip4_addr_t *ip)
         boot_send(package, n);
         assert(!strstr((char *)ctrl.bytes, "226 ")); expect("451 ");
         assert(!b->reset_requested && b->active == FTP_BOOT_NONE);
+#if LM3S6965_FTP_DIAGNOSTIC
+        if (!fault) {
+            assert(ftp_diagnostic_record.auth_entry_valid && ftp_diagnostic_record.auth_exit_valid);
+            assert(ftp_diagnostic_record.auth_entry_phase == BOOT_RECEIVE_AUTHENTICATE);
+            assert(ftp_diagnostic_record.auth_exit_phase == BOOT_RECEIVE_TERMINAL);
+            assert(ftp_diagnostic_record.auth_result == BOOT_RECEIVE_MANIFEST);
+            assert(ftp_diagnostic_record.first_cause == FTP_DIAG_CORE_OPERATION_STEP);
+        }
+#endif
         if (fault) {
             assert(b->quarantine);
             before = ftp_boot_fixture_commands();
@@ -385,7 +405,31 @@ static void boot_cases(const ip4_addr_t *ip)
         pump((cancel & 1u) ? 120u : 1u); assert(!b->reset_requested);
         if (cancel == 0) command("ABOR\r\n");
         if (cancel == 1) command("QUIT\r\n");
-        if (cancel == 2) { packet(&ctrl, TCP_ACK|TCP_FIN, NULL, 0); pump(4); }
+        if (cancel == 2) {
+            /* The first foreground turn authenticates but must not commit
+             * INVALIDATE before a pending control FIN is serviced. */
+            assert(b->config.receiver->phase == BOOT_RECEIVE_INVALIDATE);
+            assert(b->config.receiver->verify_result == BOOT_VERIFY_OK);
+            before = ftp_boot_fixture_commands();
+            packet(&ctrl, TCP_ACK|TCP_FIN, NULL, 0);
+            assert(b->config.receiver->phase == BOOT_RECEIVE_INVALIDATE);
+            pump(4);
+            assert(b->config.receiver->failure == BOOT_RECEIVE_ABORTED);
+            assert(b->config.receiver->failed_phase == BOOT_RECEIVE_INVALIDATE);
+            assert(b->config.receiver->received == 0u && b->config.receiver->programmed == 0u);
+            assert(!b->eof && !b->config.receiver->eof);
+            assert(ftp_boot_fixture_commands() == before);
+            assert(ftp_core_direction() == FTP_IDLE);
+            assert(!strstr((char *)ctrl.bytes, "426 "));
+#if LM3S6965_FTP_DIAGNOSTIC
+            assert(ftp_diagnostic_record.cause_valid && !ftp_diagnostic_record.armed);
+            assert(ftp_diagnostic_record.first_cause == FTP_DIAG_TCP_CONTROL_FIN);
+            assert(ftp_diagnostic_record.auth_entry_valid && ftp_diagnostic_record.auth_exit_valid);
+            assert(ftp_diagnostic_record.auth_entry_phase == BOOT_RECEIVE_AUTHENTICATE);
+            assert(ftp_diagnostic_record.auth_exit_phase == BOOT_RECEIVE_INVALIDATE);
+            assert(ftp_diagnostic_record.auth_result == BOOT_RECEIVE_OK);
+#endif
+        }
         if (cancel == 3) { packet(&ctrl, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
         if (cancel == 4) { packet(&data, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
         if (cancel == 5) ftp_tcp_link_down();
@@ -399,6 +443,48 @@ static void boot_cases(const ip4_addr_t *ip)
         before = ftp_boot_fixture_commands(); pump(4);
         assert(ftp_boot_fixture_commands() == before);
     }
+    /* One opaque foreground gap, unlike advance()'s serviced 250-ms steps.
+     * At exactly the inactivity deadline, core tick must cancel before the
+     * next receiver step. No FIN/RST or lwIP timer runs to cause this abort. */
+    b = boot_device(ip, false, 21017);
+    n = ftp_boot_fixture_package(package);
+    passive(true); command("STOR firmware\r\n"); expect("150 "); clear_control();
+    packet(&data, TCP_ACK|TCP_PSH, package, BOOT_MANIFEST_BYTES);
+    pump(1);
+    assert(b->config.receiver->phase == BOOT_RECEIVE_INVALIDATE);
+    assert(b->config.receiver->verify_result == BOOT_VERIFY_OK);
+    assert(ftp_boot_fixture_metadata().record.sequence == 20u);
+    before = ftp_boot_fixture_commands();
+    struct tcp_pcb *control_before_gap = peer_pcb(&ctrl);
+    clock_ms += 15000u;
+    assert(ftp_tcp_service(clock_ms));
+    expect("426 Transfer timed out.\r\n");
+    assert(peer_pcb(&ctrl) == control_before_gap && !ctrl.fin);
+    assert(b->active == FTP_BOOT_NONE && !b->reset_requested);
+    assert(b->config.receiver->phase == BOOT_RECEIVE_TERMINAL);
+    assert(b->config.receiver->failure == BOOT_RECEIVE_ABORTED);
+    assert(b->config.receiver->failed_phase == BOOT_RECEIVE_INVALIDATE);
+    assert(b->config.receiver->received == 0u && b->config.receiver->programmed == 0u);
+    assert(!b->eof && !b->config.receiver->eof);
+    assert(ftp_core_direction() == FTP_IDLE && !ftp_core_data_is_connected());
+    assert(ftp_boot_fixture_commands() == before);
+    s = ftp_boot_fixture_metadata();
+    assert(s.record.sequence == 20u && s.record.current_slot == BOOT_SLOT_A);
+    assert(s.record.candidate_slot == BOOT_SLOT_NONE);
+    assert(!strstr((char *)ctrl.bytes, "226 "));
+    command("NOOP\r\n"); expect("200 OK.\r\n");
+    assert(ftp_boot_fixture_commands() == before);
+#if LM3S6965_FTP_DIAGNOSTIC
+    assert(ftp_diagnostic_record.cause_valid && !ftp_diagnostic_record.armed);
+    assert(ftp_diagnostic_record.first_cause == FTP_DIAG_CORE_TRANSFER_PROGRESS);
+    ftp_diagnostic_record_t retained = ftp_diagnostic_record;
+    passive(true); command("RETR boot-status\r\n"); pump(32); expect("226 ");
+    assert(ftp_diagnostic_record.cause_ms == retained.cause_ms);
+    assert(ftp_diagnostic_record.first_cause == retained.first_cause);
+    assert(ftp_diagnostic_record.auth_entry_ms == retained.auth_entry_ms);
+    assert(ftp_diagnostic_record.auth_exit_ms == retained.auth_exit_ms);
+    assert(ftp_diagnostic_record.auth_exit_valid && !ftp_diagnostic_record.armed);
+#endif
     /* 5. Durable acceptance survives lost reply and failed FIN allocation.
      * No claim of reset, trial execution, or rollback from transport loss. */
     for (unsigned terminal = 0; terminal < 4; ++terminal) {

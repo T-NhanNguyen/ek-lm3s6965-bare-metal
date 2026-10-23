@@ -3,14 +3,16 @@
 # Flash one A/B boot slot on an EK-LM3S6965 over the on-board ICDI probe.
 #
 # Usage:
-#   scripts/ab-boot-firmwareflash-openocd.sh <A|B> <firmware-pkg>
-#   scripts/ab-boot-firmwareflash-openocd.sh --help
+#   scripts/ab-boot-provision-recovery.sh [--no-reset] <A|B> <firmware-pkg>
+#   scripts/ab-boot-provision-recovery.sh --help
 #
 # The package is a transport artifact: exactly 160 manifest bytes followed by
 # the exact canonical payload (see docs/boot-package.md). This script validates
 # the package fully BEFORE touching flash, erases only the selected slot's
 # payload pages plus its manifest page, writes payload + manifest, reads both
-# back for byte comparison, and only then resets into the new image.
+# back for byte comparison, and only then resets into the new image. With
+# --no-reset the target stays halted after the verified write so controlled
+# installation can select production-codec metadata and reset afterwards.
 #
 # Flash geometry (see docs/boot-memory-layout.md, include/lm3s6965/boot_format.h):
 #   slot A payload   [0x8800, 0x23C00), manifest at 0x23C00 (sector 143)
@@ -22,7 +24,8 @@
 # OpenOCD sequence (single halted session, then a separate reset only on match):
 #   halt -> erase payload pages + manifest page -> write payload + manifest ->
 #   dump readback -> host cmp + sha256 log (mismatch: stop, exit 1) ->
-#   reset run (match only).
+#   reset run (match only). With --no-reset the final reset is skipped and the
+#   target remains halted.
 #
 # Any package validation failure exits 1 before any erase or write.
 
@@ -35,11 +38,20 @@ BOARD_CONFIG="${REPOSITORY_ROOT}/tools/openocd/board/ek-lm3s6965.cfg"
 usage() {
     cat <<'EOF'
 Usage:
-  ab-boot-firmwareflash-openocd.sh <A|B> <firmware-pkg>
-  ab-boot-firmwareflash-openocd.sh --help
+  ab-boot-provision-recovery.sh [--no-reset] <A|B> <firmware-pkg>
+  ab-boot-provision-recovery.sh --help
 
 Flash one A/B boot slot on an EK-LM3S6965 via OpenOCD and the on-board ICDI
-probe, then reset into the new image.
+probe, then reset into the new image. Writes ONE SLOT only, not complete
+blank-board provisioning. Bootloader, public root and metadata remain unchanged.
+
+Options:
+  --no-reset     Leave the target halted after a verified write. No reset is
+                 attempted. Package validation still runs before erase, and a
+                 failure never resets. The metadata region [0x8000, 0x8800) is
+                 preserved. Controlled installation cannot alone guarantee boot
+                 selection; production codec metadata and a subsequent reset are
+                 required for the new image to run.
 
 Arguments:
   <A|B>          Slot selector. Must match the manifest's slot field, and
@@ -64,8 +76,8 @@ Validation (all failures exit 1 before any erase):
 
 Sequence:
   halt, erase payload pages + manifest page, write payload and manifest,
-  dump readback, host cmp + sha256 log (mismatch stops, exit 1), reset run
-  only on a full match.
+  dump readback, host cmp + sha256 log (mismatch stops, exit 1). By default,
+  reset run only on a full match. With --no-reset, the target remains halted.
 
 Exit codes:
   0  success (or --help)
@@ -83,7 +95,13 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-[[ $# -eq 2 ]] || fail "expected exactly 2 arguments: <A|B> <firmware-pkg>. See --help."
+NO_RESET=0
+if [[ "${1:-}" == "--no-reset" ]]; then
+    NO_RESET=1
+    shift
+fi
+
+[[ $# -eq 2 ]] || fail "expected exactly 2 arguments: [--no-reset] <A|B> <firmware-pkg>. See --help."
 SLOT_LETTER="$1"
 PKG="$2"
 
@@ -270,7 +288,12 @@ PYEOF
 cmp "$PAYLOAD_BIN" "$READBACK_PAYLOAD" || fail "payload readback mismatch (stopping before reset)"
 cmp "$MANIFEST_BIN" "$READBACK_MANIFEST" || fail "manifest readback mismatch (stopping before reset)"
 
-# Full match only: reset into the new image.
+# Full match only: reset into the new image, unless --no-reset requested.
+if [[ "$NO_RESET" -eq 1 ]]; then
+    echo "Slot $SLOT_LETTER flash verified; target left halted (--no-reset)."
+    exit 0
+fi
+
 openocd -f "$BOARD_CONFIG" \
     -c "init" \
     -c "reset run" \

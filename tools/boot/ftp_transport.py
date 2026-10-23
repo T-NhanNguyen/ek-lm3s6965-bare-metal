@@ -1,10 +1,38 @@
 """Bounded stdlib FTP transport for an unsigned restricted bench."""
+from dataclasses import dataclass
 import ftplib
 import ipaddress
 import math
 import re
 import socket
 import time
+
+
+@dataclass(frozen=True)
+class FTPDiagnostic:
+    """Only allowlisted state and numeric reply codes may cross the redaction boundary."""
+    phase: str
+    category: str
+    reply_code: int | None = None
+
+    def __post_init__(self):
+        if self.phase not in {"connect", "login", "type", "passive", "data-connect",
+                              "STOR-preliminary", "RETR-preliminary", "send", "receive", "final"}:
+            raise ValueError("invalid FTP diagnostic phase")
+        if self.category not in {"protocol", "reply-temporary", "reply-permanent",
+                                 "reply-state", "timeout", "disconnect", "io"}:
+            raise ValueError("invalid FTP diagnostic category")
+        if self.reply_code is not None and (type(self.reply_code) is not int or
+                                           not 100 <= self.reply_code <= 599):
+            raise ValueError("invalid FTP diagnostic reply")
+
+    def __str__(self):
+        reply = "none" if self.reply_code is None else str(self.reply_code)
+        return f"phase={self.phase} category={self.category} reply={reply}"
+
+
+class ProtocolError(OSError):
+    """Permanent, redacted FTP framing/state/size failure; do not retry."""
 
 
 class DeadlineFTP(ftplib.FTP):
@@ -92,7 +120,9 @@ class DeadlineFTP(ftplib.FTP):
     @staticmethod
     def expect(reply, code):
         if reply[:3] != code or reply[3:4] not in (' ', '-'):
-            raise ftplib.error_reply("unexpected reply state")
+            error = ftplib.error_reply("unexpected reply state")
+            error.reply_code = reply_code(reply)
+            raise error
         return reply
 
     def _connect_numeric(self, host, port):
@@ -131,27 +161,30 @@ class DeadlineFTP(ftplib.FTP):
         # Validate before stdlib's unbounded integer conversion.
         if fields is None or any(len(x) > 3 or int(x) > 255
                                  for x in fields.groups()):
-            raise ftplib.error_proto('invalid passive endpoint')
+            raise protocol_error('invalid passive endpoint', reply)
         try:
             _, port = ftplib.parse227(reply)
         except (ValueError, OverflowError):
-            raise ftplib.error_proto('invalid passive endpoint') from None
+            raise protocol_error('invalid passive endpoint', reply) from None
         if not 1 <= port <= 65535:
-            raise ftplib.error_proto('invalid passive endpoint')
+            raise protocol_error('invalid passive endpoint', reply)
         # Always use control peer, never advertised foreign PASV address.
         return self.sock.getpeername()[0], port
 
     def ntransfercmd(self, cmd, rest=None):
         if not self.passiveserver or rest is not None:
             raise ftplib.error_proto('unsupported transfer mode')
+        self.phase = "passive"
         host, port = self.makepasv()
+        self.phase = "data-connect"
         conn = self._connect_numeric(host, port)
         try:
+            self.phase = "STOR-preliminary" if cmd.startswith("STOR ") else "RETR-preliminary"
             reply = self.expect(self.sendcmd(cmd), '150')
             try:
                 size = ftplib.parse150(reply)
             except (ValueError, OverflowError):
-                raise ftplib.error_proto('invalid transfer size') from None
+                raise protocol_error('invalid transfer size', reply) from None
             self.remaining()
             return conn, size
         except BaseException:
@@ -161,6 +194,20 @@ class DeadlineFTP(ftplib.FTP):
             except Exception:
                 pass
             raise
+
+
+def reply_code(reply):
+    """Extract only an RFC reply prefix, never server prose or arbitrary digits."""
+    if isinstance(reply, str) and re.match(r"[1-5][0-9]{2}[ -]", reply):
+        return int(reply[:3])
+    return None
+
+
+def protocol_error(message, reply):
+    """Keep a known numeric reply when endpoint/size parsing rejects its payload."""
+    error = ftplib.error_proto(message)
+    error.reply_code = reply_code(reply)
+    return error
 
 
 def validate(host, port, username, password, call_timeout, operation_timeout):
@@ -223,59 +270,97 @@ class FTPTransport:
         self._remaining()
         return result
 
+    def _phase(self, phase):
+        self.phase = phase
+        if self.ftp is not None:
+            self.ftp.phase = phase
+
     def _binary(self):
+        self._phase("type")
         DeadlineFTP.expect(self._step(self.ftp.voidcmd, "TYPE I"), '200')
 
-    def _fail(self):
+    def _fail(self, error):
+        phase = self.ftp.phase if self.ftp is not None else self.phase
+        code = None
+        if isinstance(error, ftplib.Error):
+            code = getattr(error, "reply_code", None)
+            if code is None:
+                code = reply_code(str(error))
+        if isinstance(error, TimeoutError):
+            category = "timeout"
+        elif isinstance(error, (EOFError, ConnectionError)):
+            category = "disconnect"
+        elif isinstance(error, ftplib.error_temp):
+            category = "reply-temporary"
+        elif isinstance(error, ftplib.error_perm):
+            category = "reply-permanent"
+        elif isinstance(error, ftplib.error_reply):
+            category = "reply-state"
+        elif isinstance(error, (ftplib.Error, UnicodeError, ProtocolError)):
+            category = "protocol"
+        else:
+            category = "io"
+        diagnostic = FTPDiagnostic(phase, category, code)
         self.close()
-        # Neither server reply text nor credentials are safe diagnostics.
-        raise OSError("FTP operation failed; outcome may be unknown") from None
+        # Preserve exception classes and legacy text; expose only safe metadata.
+        cls = ProtocolError if isinstance(error, (ftplib.Error, UnicodeError, ProtocolError)) else OSError
+        failure = cls("FTP operation failed; outcome may be unknown")
+        failure.diagnostic = diagnostic
+        raise failure from None
 
     def connect(self):
         self.close()
         self._start()
+        self._phase("connect")
         try:
             self.ftp = self.factory()
+            self._phase("connect")
             self.ftp.arm(self._remaining)
             DeadlineFTP.expect(self._step(self.ftp.connect, self.host, self.port,
                                           self._remaining()), '220')
+            self._phase("login")
             DeadlineFTP.expect(self._step(self.ftp.login, self.username,
                                           self.password), '230')
+            self._phase("passive")
             self.ftp.set_pasv(True)
             self._binary()
-        except (ftplib.Error, OSError, EOFError, UnicodeError):
-            self._fail()
+        except (ftplib.Error, OSError, EOFError, UnicodeError) as error:
+            self._fail(error)
 
     def binary(self):
         self._start()
+        self._phase("type")
         try:
             if self.ftp is None:
                 raise OSError
             self._binary()
-        except (ftplib.Error, OSError, EOFError, UnicodeError):
-            self._fail()
+        except (ftplib.Error, OSError, EOFError, UnicodeError) as error:
+            self._fail(error)
 
-    def _transfer(self, command, body=None):
+    def _transfer(self, command, body=None, *, retr_limit=1024):
         self._start()
         data = None
+        self._phase("type")
         try:
             if self.ftp is None:
                 raise OSError
             self._binary()
             self.ftp.timeout = self._remaining()
+            self._phase("STOR-preliminary" if body is not None else "RETR-preliminary")
             data = self.ftp.transfercmd(command)
+            self._phase("send" if body is not None else "receive")
             self._remaining()
             if body is None:
                 output = bytearray()
                 while True:
                     data.settimeout(self._remaining())
-                    chunk = data.recv(min(512, 1025 - len(output)))
+                    chunk = data.recv(min(512, retr_limit + 1 - len(output)))
                     self._remaining()
                     if not chunk:
                         break
                     output.extend(chunk)
-                    if len(output) > 1024:
-                        raise OSError("status exceeds limit")
+                    if len(output) > retr_limit:
+                        raise ProtocolError("RETR body exceeds limit")
                 result = bytes(output)
             else:
                 pos = 0
@@ -290,17 +375,19 @@ class FTPTransport:
             data.close()
             data = None
             # Data EOF alone, 221, and ABOR's 225 are not completion.
+            self._phase("final")
             DeadlineFTP.expect(self._step(self.ftp.voidresp), '226')
             return result
-        except (ftplib.Error, OSError, EOFError, UnicodeError):
-            self._fail()
+        except (ftplib.Error, OSError, EOFError, UnicodeError) as error:
+            self._fail(error)
         finally:
             self._close(data)
 
     def retr(self, name):
-        if name != "boot-status":
+        if name not in ("boot-status", "boot-report"):
             raise ValueError("unsupported RETR name")
-        return self._transfer("RETR boot-status")
+        return self._transfer("RETR " + name,
+                              retr_limit=2048 if name == "boot-report" else 1024)
 
     def stor(self, name, body):
         if name not in ("firmware", "confirm"):

@@ -1,9 +1,13 @@
 #include "lm3s6965/boot_launch.h"
-#include "lm3s6965/boot_format.h"
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_lifecycle.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_verify.h"
 
 static int overlaps(const void *a, size_t as, const void *b, size_t bs)
 {

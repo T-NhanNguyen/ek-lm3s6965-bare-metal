@@ -1,7 +1,11 @@
 /* Optional startup-only SPMS144I GPTM backend; no default timer selection. */
 #ifndef LM3S6965_BOOT_STARTUP_GPTM_H
 #define LM3S6965_BOOT_STARTUP_GPTM_H
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_watchdog.h"
 #define BOOT_STARTUP_GPTM_SOURCE UINT32_C(0x4750544d)
 typedef struct {
     boot_watchdog_io_t registers;

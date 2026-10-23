@@ -1,7 +1,19 @@
 #include "lm3s6965/boot_service.h"
+
 #include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "lm3s6965/boot_diag.h"
+#include "lm3s6965/boot_diag_publication.h"
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_lifecycle.h"
+#include "lm3s6965/boot_snapshot.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_verify.h"
 
 static bool decimal(const char *s, uint32_t *out)
 {

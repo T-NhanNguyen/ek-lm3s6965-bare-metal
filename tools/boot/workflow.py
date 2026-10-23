@@ -5,6 +5,11 @@ import re
 import struct
 import time
 
+if __package__:
+    from .ftp_transport import FTPDiagnostic, ProtocolError
+else:  # client.py and the existing HOST checks import this module directly.
+    from ftp_transport import FTPDiagnostic, ProtocolError
+
 KEYS = ("format sequence running_slot hash release confirmed_slot candidate_slot "
         "permitted_slot trial_id trial_state slot_a_failures slot_a_reasons "
         "slot_a_rollback slot_b_failures slot_b_reasons slot_b_rollback health "
@@ -92,7 +97,9 @@ class Workflow:
         self.artifact = None
         self.trial_id = None
         self.upload_attempted = False
+        self.upload_diagnostic = None  # Immutable safe metadata; never retain raw exceptions.
         self.before_upload = None
+        self.confirm_attempted = False
 
     def read(self):
         self.transport.connect()
@@ -117,8 +124,10 @@ class Workflow:
         self.upload_attempted = True  # A lost reply does not permit another upload.
         try:
             self.transport.stor("firmware", artifact.body)
-        except OSError:
-            pass
+        except OSError as error:
+            diagnostic = getattr(error, "diagnostic", None)
+            if isinstance(diagnostic, FTPDiagnostic):
+                self.upload_diagnostic = diagnostic
         return "UNKNOWN"  # READY, execution, and confirmation still need status.
 
     def classify(self, observed):
@@ -177,11 +186,22 @@ class Workflow:
                 self.sleep(1)
         return result
 
-    def confirm(self):
+    def confirm(self, *, strict=False, validate=None):
+        """Recheck before STOR; confirm_attempted is true only once STOR is entered.
+
+        Strict callers receive permanent protocol/parse failures rather than
+        UNKNOWN. Legacy CLI callers retain UNKNOWN for failed preflight reads.
+        An optional validate(snapshot) guard runs before classification and STOR.
+        """
+        self.confirm_attempted = False
         try:
             observed = self.read()
-        except (OSError, ValueError, UnicodeError):
+        except (OSError, ValueError, UnicodeError) as error:
+            if strict and isinstance(error, (ProtocolError, ValueError, UnicodeError)):
+                raise
             return "UNKNOWN"
+        if validate is not None:
+            validate(observed)
         state = self.classify(observed)
         if state == "CONFIRMED":
             return state
@@ -189,8 +209,12 @@ class Workflow:
             raise ValueError("healthy matching trial required")
         a = self.artifact
         body = (f"format=1\nslot={a.slot}\nhash={a.digest}\ntrial_id={self.trial_id}\n").encode("ascii")
+        self.confirm_attempted = True  # A lost reply must never authorize a retry.
         try:
             self.transport.stor("confirm", body)
+        except ProtocolError:
+            if strict:
+                raise
         except OSError:
             pass
         # A caller may invoke confirm again. The exact retained trial ID stays fixed.

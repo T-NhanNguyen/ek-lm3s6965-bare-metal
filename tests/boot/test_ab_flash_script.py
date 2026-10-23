@@ -16,7 +16,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/ab-boot-firmwareflash-openocd.sh"
+SCRIPT = ROOT / "scripts/ab-boot-provision-recovery.sh"
 
 
 def artifact(slot="A", size=236):
@@ -71,27 +71,58 @@ class FlashScriptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tools = {}
-        for name in ("bash", "python3", "tclsh", "dirname", "mktemp", "rm"):
+        for name in ("bash", "python3", "tclsh", "dirname", "mktemp", "rm", "cmp"):
             path = shutil.which(name)
             if path is None:
                 raise RuntimeError("offline regression prerequisite missing: " + name)
             cls.tools[name] = path
 
-    def invoke(self, directory, slot, package, component):
+    def invoke(self, directory, slot, package, component, args=None, fake_type="refuse"):
         directory = Path(directory)
         binary = directory / "bin"
         binary.mkdir()
         # Deliberately exclude the host PATH: no actual OpenOCD fallback exists.
-        for name in ("python3", "dirname", "mktemp", "rm"):
+        for name in ("python3", "dirname", "mktemp", "rm", "cmp"):
             (binary / name).symlink_to(self.tools[name])
         record = directory / "record.jsonl"
         recorder = directory / "recorder.py"
-        recorder.write_text('''import json
+        if fake_type == "refuse":
+            recorder.write_text('''import json
 import os
 import sys
 with open(os.environ["FLASH_RECORD"], "a") as output:
     output.write(json.dumps(sys.argv[1:]) + "\\n")
 sys.exit(73)  # Refuse every operation, including any attempted reset.
+''')
+        elif fake_type == "success":
+            recorder.write_text('''import json
+import os
+import shutil
+import sys
+with open(os.environ["FLASH_RECORD"], "a") as output:
+    output.write(json.dumps(sys.argv[1:]) + "\\n")
+tmp = os.environ.get("TMPDIR")
+if tmp:
+    src_payload = os.path.join(tmp, "payload.bin")
+    src_manifest = os.path.join(tmp, "manifest.bin")
+    dst_payload = os.path.join(tmp, "readback-payload.bin")
+    dst_manifest = os.path.join(tmp, "readback-manifest.bin")
+    if os.path.exists(src_payload):
+        shutil.copy(src_payload, dst_payload)
+    if os.path.exists(src_manifest):
+        shutil.copy(src_manifest, dst_manifest)
+''')
+        elif fake_type == "bad_readback":
+            recorder.write_text('''import json
+import os
+import sys
+with open(os.environ["FLASH_RECORD"], "a") as output:
+    output.write(json.dumps(sys.argv[1:]) + "\\n")
+# Create empty readback files to force a mismatch.
+tmp = os.environ.get("TMPDIR")
+if tmp:
+    open(os.path.join(tmp, "readback-payload.bin"), "wb").close()
+    open(os.path.join(tmp, "readback-manifest.bin"), "wb").close()
 ''')
         fake = binary / "openocd"
         fake.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " "
@@ -101,8 +132,13 @@ sys.exit(73)  # Refuse every operation, including any attempted reset.
         temporary.mkdir()
         pkg = directory / "public fixture [not Tcl]; $.pkg"
         pkg.write_bytes(package)
+        cmd = [self.tools["bash"], str(SCRIPT)]
+        if args is not None:
+            cmd.extend(args)
+        else:
+            cmd.extend([slot, str(pkg)])
         result = subprocess.run(
-            [self.tools["bash"], str(SCRIPT), slot, str(pkg)], cwd=ROOT,
+            cmd, cwd=ROOT,
             env={"PATH": str(binary), "TMPDIR": str(temporary),
                  "FLASH_RECORD": str(record), "LC_ALL": "C"},
             capture_output=True, text=True, timeout=10)
@@ -175,6 +211,55 @@ sys.exit(73)  # Refuse every operation, including any attempted reset.
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertIn("package validation failed", result.stderr)
                     self.assertEqual(calls, [], "invalid packages must not reach even the fake tool")
+
+    def test_option_parse_malformed_args(self):
+        cases = [
+            ([], "expected exactly 2 arguments"),
+            (["--no-reset"], "expected exactly 2 arguments"),
+            (["--no-reset", "A"], "expected exactly 2 arguments"),
+            (["--no-reset", "A", "pkg", "extra"], "expected exactly 2 arguments"),
+            (["--unknown", "A"], "slot must be exactly A or B"),
+        ]
+        for args, expected in cases:
+            with self.subTest(args=args):
+                with tempfile.TemporaryDirectory(prefix="ab-flash-invalid-args-") as directory:
+                    result, calls, _ = self.invoke(directory, "A", artifact("A"),
+                                                   "missing [error INJECTED] $", args=args)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(expected, result.stderr)
+                    self.assertEqual(calls, [])
+
+    def test_no_reset_skips_reset_after_success(self):
+        with tempfile.TemporaryDirectory(prefix="ab-flash-no-reset-success-") as directory:
+            pkg = Path(directory) / "public fixture [not Tcl]; $.pkg"
+            result, calls, _ = self.invoke(directory, "A", artifact("A"), "no-reset-success",
+                                           args=["--no-reset", "A", str(pkg)], fake_type="success")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("target left halted (--no-reset)", result.stdout)
+            self.assertEqual(len(calls), 1, "must not reset after --no-reset")
+            self.assertIn("halt", calls[0])
+            self.assertNotIn("reset run", calls[0])
+
+    def test_default_resets_after_success(self):
+        with tempfile.TemporaryDirectory(prefix="ab-flash-default-reset-success-") as directory:
+            pkg = Path(directory) / "public fixture [not Tcl]; $.pkg"
+            result, calls, _ = self.invoke(directory, "A", artifact("A"), "default-reset-success",
+                                           args=["A", str(pkg)], fake_type="success")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("target reset", result.stdout)
+            self.assertEqual(len(calls), 2, "must reset after verified write")
+            self.assertIn("reset run", calls[1])
+            self.assertNotIn("reset run", calls[0])
+
+    def test_no_reset_readback_failure_does_not_reset(self):
+        with tempfile.TemporaryDirectory(prefix="ab-flash-no-reset-fail-") as directory:
+            pkg = Path(directory) / "public fixture [not Tcl]; $.pkg"
+            result, calls, _ = self.invoke(directory, "A", artifact("A"), "no-reset-fail",
+                                           args=["--no-reset", "A", str(pkg)], fake_type="bad_readback")
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("readback mismatch", result.stderr)
+            self.assertEqual(len(calls), 1, "must not reset after readback failure")
+            self.assertNotIn("reset run", calls[0])
 
 
 if __name__ == "__main__":

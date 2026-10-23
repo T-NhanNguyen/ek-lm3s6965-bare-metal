@@ -55,7 +55,7 @@ static void oled_set_window(uint8_t column_start, uint8_t column_end,
     oled_write_command(0x52u); /* Horizontal address increment. */
 }
 
-/* Enable panel power and transmit the exact recovery sequence from docs/oled.md. */
+/* Enable panel power and transmit the exact recovery sequence from docs/peripherals.md. */
 void oled_initialize(uint32_t system_clock_hz)
 {
     static const uint8_t init_sequence[] =

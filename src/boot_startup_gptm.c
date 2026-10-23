@@ -1,5 +1,12 @@
 #include "lm3s6965/boot_startup_gptm.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_watchdog.h"
+
 #define RCGC1 UINT32_C(0x400fe104)
 #define RCC UINT32_C(0x400fe060)
 #define RCC2 UINT32_C(0x400fe070)

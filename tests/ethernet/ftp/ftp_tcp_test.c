@@ -389,7 +389,12 @@ int main(void)
     p = passive_connect(); command("RETR hello\r\n"); assert(!data.pcb);
     upload(original, 5);
     p = passive_connect(); command("STOR hello\r\n");
+    ftp_diagnostic_arm(); /* Synthetic admission to isolate branch precedence. */
     deliver(p, "bad", 3, 1); fin(control.pcb); service();
+#if LM3S6965_FTP_DIAGNOSTIC
+    assert(ftp_diagnostic_record.first_cause == FTP_DIAG_TCP_CONTROL_FIN);
+#endif
+    ftp_diagnostic_end();
     assert(!control.pcb && !data.pcb); file_is(original, 5);
     connect_to(listener, 10, ERR_OK); loops(5);
     owner = control.pcb;
@@ -424,9 +429,20 @@ int main(void)
     deliver(control.pcb, "NOOP\r\n", 6, 2);
     fail_output = 100; service();
     size_t pending; assert(!ftp_core_reply_peek(&pending) && control.output);
+    ftp_diagnostic_arm();
     clock_ms += 4999; service(); assert(control.pcb && data.pcb);
-    ++clock_ms; service(); assert(!control.pcb && !data.pcb);
+    ++clock_ms;
+    fin(control.pcb); /* Output failure is selected before simultaneous FIN. */
+    service(); assert(!control.pcb && !data.pcb);
+#if LM3S6965_FTP_DIAGNOSTIC
+    assert(ftp_diagnostic_record.cause_valid);
+    assert(ftp_diagnostic_record.first_cause == FTP_DIAG_TCP_CONTROL_OUTPUT);
+#endif
     file_is(original, 5); fail_output = 0; ftp_tcp_link_down();
+#if LM3S6965_FTP_DIAGNOSTIC
+    assert(ftp_diagnostic_record.first_cause == FTP_DIAG_TCP_CONTROL_OUTPUT);
+#endif
+    ftp_diagnostic_end();
     /* Same deadline for already-enqueued download output, even though the
      * unsent-file core timer no longer applies and no ACK is forthcoming. */
     start(); p = passive_connect();

@@ -2,8 +2,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_handoff.h"
+#include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_startup_gptm.h"
+#include "lm3s6965/boot_watchdog.h"
 
 /* SPMS144I pp106-119,124-127: W1-clear bank masks include HIB IRQ43.
  * ICSR clear bits are WO: test pending SET bits, never RMW ICSR. */

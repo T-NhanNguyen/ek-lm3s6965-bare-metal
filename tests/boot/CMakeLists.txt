@@ -162,7 +162,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm
         $<$<CONFIG:Release>:-Os>)
 endif()
 # Concrete FTP binding, separate from RAM storage and opt-in at startup.
+option(LM3S6965_FTP_DIAGNOSTIC "Build opt-in software-tick FTP diagnostic" OFF)
 add_library(ftp_boot STATIC ../../src/ftp_boot.c ../../src/ftp_core.c)
+if(LM3S6965_FTP_DIAGNOSTIC)
+    target_sources(ftp_boot PRIVATE ../../src/ftp_diagnostic.c)
+    target_compile_definitions(ftp_boot PUBLIC LM3S6965_FTP_DIAGNOSTIC=1)
+endif()
 target_link_libraries(ftp_boot PUBLIC boot_receive boot_service)
 target_compile_options(ftp_boot PRIVATE
     -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion
@@ -298,12 +303,26 @@ target_link_libraries(test_service PRIVATE boot_service)
 target_compile_options(test_service PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
     -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 add_test(NAME boot_service COMMAND test_service)
+# The report regression includes the signed transport/device fixture directly;
+# link its production dependencies, not a second copy of the fixture object.
+add_executable(test_ftp_report test_ftp_report.c)
+target_link_libraries(test_ftp_report PRIVATE ftp_boot boot_watchdog)
+target_compile_options(test_ftp_report PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
+    -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
+add_test(NAME boot_ftp_report COMMAND test_ftp_report)
 add_test(NAME boot_pc_workflow COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test_workflow.py -v)
 set_tests_properties(boot_pc_workflow PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 add_test(NAME boot_pc_ftp COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/test_ftp_transport.py -v)
 set_tests_properties(boot_pc_ftp PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+add_test(NAME boot_ab_build_preset COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_ab_build_preset.py -v)
+set_tests_properties(boot_ab_build_preset PROPERTIES TIMEOUT 180
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+add_test(NAME boot_pc_ab_demo COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_ab_demo.py -v)
+set_tests_properties(boot_pc_ab_demo PROPERTIES ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 add_executable(test_handoff test_handoff.c)
 target_link_libraries(test_handoff PRIVATE boot_handoff)
 target_compile_options(test_handoff PRIVATE -UNDEBUG -Wall -Wextra -Werror -Wpedantic
@@ -431,11 +450,11 @@ foreach(target IN ITEMS boot_receive_fault test_receive_fault)
 endforeach()
 add_test(NAME boot_receive_fault COMMAND test_receive_fault)
 if(BOOT_SANITIZERS)
-    foreach(target IN ITEMS boot_startup test_startup ftp_boot ftp_boot_fixture boot_receive_fault test_receive_fault boot_receive test_receive boot_service test_service boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
+    foreach(target IN ITEMS boot_startup test_startup ftp_boot ftp_boot_fixture test_ftp_report boot_receive_fault test_receive_fault boot_receive test_receive boot_service test_service boot_runtime_watchdog boot_runtime test_handoff boot_handoff test_watchdog boot_watchdog test_flash boot_flash test_snapshot boot_snapshot test_diag_publication boot_diag_publication test_diag boot_diag test_reset_handler boot_reset_handler test_reset boot_reset test_lifecycle boot_lifecycle test_store boot_store test_format test_crypto test_verify boot_verify boot_crypto
                             boot_crypto_fault boot_verify_fault test_verify_fault package_verify)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endforeach()
-    foreach(target IN ITEMS test_startup test_receive_fault test_receive test_service test_handoff test_watchdog test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
+    foreach(target IN ITEMS test_startup test_ftp_report test_receive_fault test_receive test_service test_handoff test_watchdog test_flash test_snapshot test_diag_publication test_diag test_reset_handler test_reset test_lifecycle test_store test_format test_crypto test_verify test_verify_fault package_verify)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()
 endif()
@@ -460,5 +479,5 @@ set(BOOT_ASAN_OPTIONS "halt_on_error=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     string(APPEND BOOT_ASAN_OPTIONS ":detect_leaks=1")
 endif()
-set_tests_properties(boot_receive_fault boot_receive boot_service boot_handoff boot_watchdog boot_flash boot_snapshot boot_diag_publication boot_allocator boot_diag boot_reset_handler boot_reset boot_lifecycle boot_store boot_format boot_crypto boot_verify boot_verify_fault boot_package PROPERTIES ENVIRONMENT
+set_tests_properties(boot_receive_fault boot_receive boot_service boot_ftp_report boot_handoff boot_watchdog boot_flash boot_snapshot boot_diag_publication boot_allocator boot_diag boot_reset_handler boot_reset boot_lifecycle boot_store boot_format boot_crypto boot_verify boot_verify_fault boot_package PROPERTIES ENVIRONMENT
     "ASAN_OPTIONS=${BOOT_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1;PYTHONDONTWRITEBYTECODE=1")

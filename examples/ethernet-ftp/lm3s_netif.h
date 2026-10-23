@@ -2,7 +2,9 @@
 #define FTP_LM3S_NETIF_H
 #include <stdbool.h>
 #include <stdint.h>
-#include "lwip/netif.h"
+
+#include "lwip/err.h"
+#include "lwip/ip4_addr.h"
 
 /* One instance, foreground owner. Call after lwip_init and clock startup. */
 err_t lm3s_netif_initialize(uint32_t cpu_clock_hz, uint32_t now);

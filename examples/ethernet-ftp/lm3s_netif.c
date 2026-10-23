@@ -1,11 +1,20 @@
 #include "lm3s_netif.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "ethernet.h"
 #include "ftp_tcp.h"
-#include "net_clock.h"
+#include "lwip/arch.h"
+#include "lwip/err.h"
 #include "lwip/etharp.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/netif.h"
 #include "lwip/pbuf.h"
+#include "net_clock.h"
 #include "netif/ethernet.h"
-#include <string.h>
 
 static const uint8_t mac[6] = {0x02, 0x00, 0x00, 0x69, 0x65, 0x02};
 static struct netif interface;

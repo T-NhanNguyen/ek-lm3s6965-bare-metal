@@ -7,7 +7,7 @@
  * P-256 SEC1 uncompressed: 0x04 || x[32] || y[32], coordinates big-endian.
  * SHA-256 of these 65 bytes:
  * f3ab1a07197e14750365367b1c09a2b0848c7062a419f82d7f1b087d03e7518d
- * See docs/boot-demo-key.md for provenance, verification and signing usage.
+ * See docs/boot-package.md for provenance, verification and signing usage.
  */
 #define LM3S6965_BOOT_DEMO_PUBLIC_KEY_SIZE 65u
 

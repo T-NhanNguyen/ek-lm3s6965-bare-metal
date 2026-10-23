@@ -1,6 +1,14 @@
 #include "lm3s6965/ftp_core.h"
+
 #include <limits.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/ftp_diagnostic.h"
+#include "lm3s6965/ftp_operation.h"
+#include "lm3s6965/ftp_storage.h"
 
 typedef struct {
     char text[FTP_REPLY_CAPACITY];
@@ -102,10 +110,12 @@ static void command(char *line, uint32_t now)
     }
     const char *answer = "502 Command not supported.\r\n";
     if (strcmp(line, "QUIT") == 0 && *arg == '\0') {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_QUIT, now);
         teardown(); core.quitting = true; answer = "221 Goodbye.\r\n";
     } else if (strcmp(line, "ABOR") == 0 && *arg == '\0') {
         bool active = core.direction != FTP_IDLE;
         bool accepted = core.operation && core.accepted;
+        ftp_diagnostic_cause(FTP_DIAG_CORE_ABOR, now);
         teardown();
         answer = accepted ? "225 Operation already accepted.\r\n" :
             (active ? "426 Transfer aborted.\r\n225 Abort complete.\r\n" : "225 No transfer.\r\n");
@@ -363,6 +373,7 @@ ftp_input_t ftp_core_upload_span(const uint8_t *bytes, size_t length,
         if (*accepted > length) { *accepted = 0u; r = FTP_OPERATION_ERROR; }
         if (*accepted != 0u) { core.progress_time = now; }
         if (r == FTP_OPERATION_ERROR || r == FTP_OPERATION_ACCEPTED) {
+            ftp_diagnostic_cause(FTP_DIAG_CORE_OPERATION_FEED, now);
             failure("451 Operation failed.\r\n", now); return FTP_INPUT_REJECTED;
         }
         return *accepted == length ? FTP_INPUT_OK :
@@ -384,6 +395,7 @@ bool ftp_core_upload_eof(uint32_t now)
     core.eof = true;
     if (core.operation) {
         if (!operation->ops->eof(operation->context)) {
+            ftp_diagnostic_cause(FTP_DIAG_CORE_OPERATION_EOF, now);
             failure("451 Operation failed.\r\n", now); return false;
         }
     } else { close_data(now); }
@@ -395,10 +407,14 @@ void ftp_core_foreground(uint32_t now)
     if (!core.operation || core.direction != FTP_UPLOAD || core.accepted) { return; }
     ftp_operation_result_t r = operation->ops->step(operation->context);
     if (r == FTP_OPERATION_ACCEPTED) {
-        if (!core.eof) { failure("451 Premature acceptance.\r\n", now); return; }
+        if (!core.eof) {
+            ftp_diagnostic_cause(FTP_DIAG_CORE_PREMATURE_ACCEPTANCE, now);
+            failure("451 Premature acceptance.\r\n", now); return;
+        }
         core.accepted = true;
         close_data(now);
     } else if (r == FTP_OPERATION_ERROR) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_OPERATION_STEP, now);
         failure("451 Operation failed.\r\n", now);
     }
 }
@@ -448,7 +464,10 @@ bool ftp_core_data_close_result(bool accepted, uint32_t now)
 }
 void ftp_core_data_error(uint32_t now)
 {
-    if (core.direction != FTP_IDLE) { failure("426 Data connection failed.\r\n", now); }
+    if (core.direction != FTP_IDLE) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_DATA_ERROR, now);
+        failure("426 Data connection failed.\r\n", now);
+    }
     else if (core.passive || core.opening) { failure("425 Data connection failed.\r\n", now); }
 }
 const uint8_t *ftp_core_file(size_t *length, bool *exists)
@@ -462,23 +481,36 @@ const uint8_t *ftp_core_file(size_t *length, bool *exists)
 void ftp_core_tick(uint32_t now)
 {
     if (!core.session) { return; }
-    if (elapsed(now, core.control_time, 60000u) ||
-        (core.parser.active && elapsed(now, core.parser.since, 10000u)) ||
-        (core.count != 0u && elapsed(now, core.output_time, 5000u)) ||
-        (core.quitting && core.count == 0u && elapsed(now, core.close_time, 5000u))) {
+    if (elapsed(now, core.control_time, 60000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_CONTROL_IDLE, now);
+        lost(); return;
+    } else if (core.parser.active && elapsed(now, core.parser.since, 10000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_PARSER, now);
+        lost(); return;
+    } else if (core.count != 0u && elapsed(now, core.output_time, 5000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_REPLY_OUTPUT, now);
+        lost(); return;
+    } else if (core.quitting && core.count == 0u && elapsed(now, core.close_time, 5000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_CONTROL_CLOSE, now);
         lost(); return;
     }
     if (core.closing && elapsed(now, core.close_time, 5000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_DATA_CLOSE, now);
         failure("426 Data close timed out.\r\n", now);
     } else if (core.direction == FTP_DOWNLOAD && core.connected && core.ready &&
                !core.closing && core.enqueued < core.download.length &&
                elapsed(now, core.data_output_time, 5000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_DATA_OUTPUT, now);
         failure("426 Data output timed out.\r\n", now);
-    } else if (core.direction != FTP_IDLE &&
-               (elapsed(now, core.start_time, 60000u) || elapsed(now, core.progress_time, 15000u))) {
+    } else if (core.direction != FTP_IDLE && elapsed(now, core.start_time, 60000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_TRANSFER_TOTAL, now);
+        failure("426 Transfer timed out.\r\n", now);
+    } else if (core.direction != FTP_IDLE && elapsed(now, core.progress_time, 15000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_TRANSFER_PROGRESS, now);
         failure("426 Transfer timed out.\r\n", now);
     } else if ((core.opening || (core.passive && core.direction == FTP_IDLE) ||
                 (core.passive && !core.connected)) && elapsed(now, core.passive_time, 15000u)) {
+        ftp_diagnostic_cause(FTP_DIAG_CORE_PASSIVE, now);
         failure("425 Passive connection timed out.\r\n", now);
     }
 }

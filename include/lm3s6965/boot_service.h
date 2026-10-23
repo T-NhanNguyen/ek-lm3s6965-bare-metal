@@ -4,8 +4,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "lm3s6965/boot_diag_publication.h"
 #include "lm3s6965/boot_lifecycle.h"
 #include "lm3s6965/boot_snapshot.h"
+#include "lm3s6965/boot_store.h"
 
 #define BOOT_STATUS_CAPACITY 1024u
 #define BOOT_CONFIRM_CAPACITY 128u

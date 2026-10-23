@@ -21,7 +21,7 @@ REQUIRED_FILES = (
     "CMakeLists.txt", "include/CMakeLists.txt",
     "scripts/validate-boot-public-key.py", "tests/boot/CMakeLists.txt",
     "tests/boot/run_physical_root.py", "tests/boot/physical_root_manifest.json",
-    "tests/boot/run_sequence.py", "tests/boot/sequence_host.c",
+    "tests/boot/run_sequence.py", "tests/boot/arm_compiler.py", "tests/boot/sequence_host.c",
     "tests/boot/flash_model.c", "tests/boot/flash_model.h",
     "tests/boot/verify_fixtures.h", "tests/boot/test_crypto.c",
     "scripts/boot_fingerprints.py",
@@ -33,7 +33,7 @@ SEQUENCE_SOURCE_DIRS = (
 )
 SEQUENCE_REQUIRED_FILES = (
     "src/CMakeLists.txt", "tests/boot/CMakeLists.txt", "cmake/boot_crypto.cmake",
-    "tests/boot/sequence_host.c", "tests/boot/run_sequence.py",
+    "tests/boot/sequence_host.c", "tests/boot/run_sequence.py", "tests/boot/arm_compiler.py",
     "tests/boot/sequence_manifest.json", "tests/boot/flash_model.c",
     "tests/boot/flash_model.h", "tests/boot/verify_fixtures.h",
     "docs/boot-startup.md", "scripts/boot_fingerprints.py",

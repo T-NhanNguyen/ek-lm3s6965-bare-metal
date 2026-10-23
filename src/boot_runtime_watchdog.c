@@ -1,6 +1,13 @@
 #include "lm3s6965/boot_runtime_watchdog.h"
-#include "boot_watchdog_internal.h"
+
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "boot_handoff_internal.h"
+#include "boot_watchdog_internal.h"
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_handoff.h"
 #include "lm3s6965/boot_launch.h"
 #include "lm3s6965/boot_reset_handler.h"
 #include "lm3s6965/boot_runtime.h"
@@ -8,10 +15,6 @@
 #include "lm3s6965/boot_store.h"
 #include "lm3s6965/boot_verify.h"
 #include "lm3s6965/boot_watchdog.h"
-
-#include <stddef.h>
-#include <stdatomic.h>
-#include <stdint.h>
 
 typedef struct
 {

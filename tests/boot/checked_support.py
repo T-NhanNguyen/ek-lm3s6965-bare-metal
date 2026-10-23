@@ -19,7 +19,9 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-GCC = Path('/Users/nhan/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin/arm-none-eabi-gcc')
+from arm_compiler import arm_gcc
+
+GCC = arm_gcc()
 BIN = GCC.parent
 CC = Path('/usr/bin/clang')
 HOST_CASES = ('launch-authentic-prepare', 'launch-admission-cross-api',

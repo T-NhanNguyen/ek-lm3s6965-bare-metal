@@ -12,6 +12,19 @@ if(LM3S6965_BOOT_PHYSICAL_PRODUCTION)
     add_compile_definitions(LM3S6965_BOOT_PHYSICAL_PRODUCTION=1)
     set(_boot_root_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/boot-public-root")
     set(_boot_root_header "${_boot_root_dir}/lm3s6965_boot_production_public_key.h")
+    # Permit only the ignored source/build subtree or an external build tree.
+    # Compare canonical path components so lookalikes and symlink escapes into
+    # other source directories cannot place generated PUBLIC material there.
+    file(REAL_PATH "${CMAKE_CURRENT_LIST_DIR}/.." _boot_source)
+    file(REAL_PATH "${CMAKE_BINARY_DIR}" _boot_binary)
+    file(RELATIVE_PATH _boot_relative "${_boot_source}" "${_boot_binary}")
+    if(NOT IS_ABSOLUTE "${_boot_relative}"
+            AND NOT _boot_relative MATCHES "^\\.\\.(/|$)"
+            AND NOT _boot_relative MATCHES "^build(/|$)")
+        message(FATAL_ERROR "Production PUBLIC root requires an external build directory or the source/build subtree")
+    endif()
+    # Reject unsafe destinations before touching any previously generated root.
+    # In valid output trees, remove stale trust even when key validation fails.
     file(REMOVE "${_boot_root_header}")
     if(NOT LM3S6965_BOOT_PUBLIC_KEY_FILE)
         message(FATAL_ERROR "Production requires explicit LM3S6965_BOOT_PUBLIC_KEY_FILE: exactly 65 raw SEC1 uncompressed P-256 PUBLIC bytes; no demo fallback")
@@ -20,13 +33,6 @@ if(LM3S6965_BOOT_PHYSICAL_PRODUCTION)
         ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
     if(NOT EXISTS "${_boot_public_file}" OR IS_DIRECTORY "${_boot_public_file}")
         message(FATAL_ERROR "Production PUBLIC key file is missing or not a regular file: ${_boot_public_file}")
-    endif()
-    # Generated PUBLIC material belongs only in an out-of-source build tree.
-    file(REAL_PATH "${CMAKE_CURRENT_LIST_DIR}/.." _boot_source)
-    file(REAL_PATH "${CMAKE_BINARY_DIR}" _boot_binary)
-    cmake_path(IS_PREFIX _boot_source "${_boot_binary}" NORMALIZE _boot_in_source)
-    if(_boot_in_source)
-        message(FATAL_ERROR "Production PUBLIC root requires a build directory outside the source tree")
     endif()
     find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
     set(_boot_validator "${CMAKE_CURRENT_LIST_DIR}/../scripts/validate-boot-public-key.py")

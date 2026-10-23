@@ -1,5 +1,8 @@
 #include "fixture_pattern.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 bool fixture_pattern_tick(fixture_pattern_t *state, unsigned pattern)
 {
     const unsigned phase = state->phase;

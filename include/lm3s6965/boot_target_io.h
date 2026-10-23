@@ -2,8 +2,14 @@
 #ifndef LM3S6965_BOOT_TARGET_IO_H
 #define LM3S6965_BOOT_TARGET_IO_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "lm3s6965/boot_flash.h"
+#include "lm3s6965/boot_reset_handler.h"
+#include "lm3s6965/boot_select.h"
 #include "lm3s6965/boot_sequence.h"
+#include "lm3s6965/boot_store.h"
 
 /* Privileged, interrupt-excluded, exclusive boot caller only. All pointers must
  * cover valid aligned objects, disjoint from MMIO/source FLASH and from each

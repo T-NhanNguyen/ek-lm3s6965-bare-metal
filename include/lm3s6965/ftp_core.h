@@ -1,5 +1,5 @@
 /* Singleton, serialized FTP state machine with borrowed synchronous storage.
- * See examples/ethernet-ftp/FTP_CORE_API.md before use. No reentrancy/ISR use. */
+ * See docs/ftp.md#core-events-and-deadlines before use. No reentrancy/ISR use. */
 #ifndef LM3S6965_FTP_CORE_H
 #define LM3S6965_FTP_CORE_H
 #include <stdbool.h>

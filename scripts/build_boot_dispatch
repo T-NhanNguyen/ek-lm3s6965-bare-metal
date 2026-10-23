@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Configure with the selected public root, then build the dispatch bootloader."""
+import os
+from pathlib import Path
+import re
+import shlex
+import stat
+import subprocess
+import sys
+
+PREFIX = "LM3S6965_BOOT_"
+PUBLIC_KEY = PREFIX + "PUBLIC_KEY_FILE"
+KNOWN_KEYS = tuple(PREFIX + name for name in
+                   ("PUBLIC_KEY_FILE", "PRIVATE_KEY_FILE", "RELEASE_A", "RELEASE_B"))
+
+
+def configuration(repo):
+    """Read bounded literal data, never shell source or inherited configuration."""
+    fd = os.open(repo / ".env", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise ValueError(".env must be a regular file (not a symlink)")
+        data = source.read(4097)
+    if len(data) > 4096:
+        raise ValueError(".env exceeds 4096-byte limit")
+    text = data.decode("utf-8")
+    if any(((ord(c) < 32) and (c not in "\t\r\n")) or ord(c) == 127 for c in text):
+        raise ValueError(".env contains control characters")
+    values = {}
+    for number, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)", line)
+        if match is None:
+            raise ValueError(f"malformed assignment on line {number}")
+        name, raw = match.groups()
+        if name not in KNOWN_KEYS:
+            raise ValueError(f"unknown key on line {number}; allowed: {', '.join(KNOWN_KEYS)}")
+        if name in values:
+            raise ValueError(f"duplicate {name}")
+        if raw.startswith(("'", '"')):
+            if len(raw) < 2 or raw[-1] != raw[0] or raw[0] in raw[1:-1]:
+                raise ValueError(f"malformed quotes on line {number}")
+            raw = raw[1:-1]
+        elif "'" in raw or '"' in raw:
+            raise ValueError(f"malformed quotes on line {number}")
+        values[name] = raw
+    if not values.get(PUBLIC_KEY, "").strip():
+        raise ValueError(f"missing or empty assignment: {PUBLIC_KEY}")
+    return values[PUBLIC_KEY]
+
+
+def main():
+    if len(sys.argv) > 2:
+        print("Usage: scripts/build_boot_dispatch [PUBLIC_KEY_FILE]", file=sys.stderr)
+        return 2
+    repo = Path(__file__).resolve().parents[1]
+    try:
+        configured = configuration(repo)
+        public = Path(sys.argv[1]) if len(sys.argv) == 2 else Path(configured)
+        if len(sys.argv) == 2 and not sys.argv[1]:
+            raise ValueError("PUBLIC key must be a readable regular file")
+        if not public.is_absolute():
+            public = (Path.cwd() if len(sys.argv) == 2 else repo) / public
+        if not public.is_file() or not os.access(public, os.R_OK):
+            raise ValueError("PUBLIC key must be a readable regular file")
+        subprocess.run(["cmake", "--preset", "ab-boot-demo",
+                        f"-D{PUBLIC_KEY}={public}"], cwd=repo, check=True)
+        subprocess.run(["cmake", "--build", "build",
+                        "--target", "lm3s6965_boot_dispatch"], cwd=repo, check=True)
+        target = repo / "build/src/lm3s6965_boot_dispatch"
+        print(shlex.join([str(repo / "scripts/flash.sh"), str(target)]))
+        return 0
+    except subprocess.CalledProcessError as error:
+        print("Boot configure/build command failed; no bootloader built", file=sys.stderr)
+        return error.returncode if error.returncode > 0 else 1
+    except (ValueError, OSError, UnicodeError) as error:
+        detail = str(error) if isinstance(error, ValueError) else "filesystem operation failed"
+        print("repository .env: " + detail, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

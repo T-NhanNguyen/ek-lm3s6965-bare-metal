@@ -1,5 +1,17 @@
 #include "lm3s6965/boot_startup.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/boot_diag.h"
+#include "lm3s6965/boot_diag_publication.h"
+#include "lm3s6965/boot_format.h"
+#include "lm3s6965/boot_handoff.h"
+#include "lm3s6965/boot_runtime_watchdog.h"
+#include "lm3s6965/boot_verify.h"
+#include "lm3s6965/boot_watchdog.h"
 
 static bool overlap(const void *a, size_t n, const void *b, size_t m)
 {

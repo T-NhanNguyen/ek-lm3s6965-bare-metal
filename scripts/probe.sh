@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Read-only connectivity check for the EK-LM3S6965.
+# Non-programming connectivity check for the EK-LM3S6965.
 # Resets and halts the core, reports identity and flash geometry, then resumes.
 # Writes nothing to flash — use this before trusting flash.sh.
 
@@ -20,7 +20,7 @@ if [[ ! -f "$BOARD_CONFIG" ]]; then
     exit 1
 fi
 
-echo "Probing EK-LM3S6965 over ICDI (read-only, no flash writes)..."
+echo "Probing EK-LM3S6965 over ICDI (non-programming: reset halt, read, resume; no flash writes)..."
 echo
 
 if ! openocd -f "$BOARD_CONFIG" \

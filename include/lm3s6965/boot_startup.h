@@ -1,11 +1,16 @@
 /* Opt-in native continuity ABI. Not a wire format or reset classifier. */
 #ifndef LM3S6965_BOOT_STARTUP_H
 #define LM3S6965_BOOT_STARTUP_H
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
 #include "lm3s6965/boot_diag_publication.h"
+#include "lm3s6965/boot_handoff.h"
 #include "lm3s6965/boot_runtime_watchdog.h"
+#include "lm3s6965/boot_verify.h"
+#include "lm3s6965/boot_watchdog.h"
 
 #define BOOT_STARTUP_MAGIC UINT32_C(0x31534342)
 #define BOOT_STARTUP_ABI UINT32_C(0x4d330001)

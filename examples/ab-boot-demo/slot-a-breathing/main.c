@@ -1,5 +1,8 @@
-#include "lm3s6965/boot_startup.h"
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "led.h"
+#include "lm3s6965/boot_startup.h"
 #include "pwm_envelope.h"
 
 /* Bounded software work, not a calibrated delay. Keep the hold present at -Os.

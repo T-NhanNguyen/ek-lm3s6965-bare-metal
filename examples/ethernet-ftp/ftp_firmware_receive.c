@@ -1,7 +1,9 @@
 #include "ftp_firmware_receive.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
+#include "lm3s6965/ftp_boot.h"
 #include "lm3s6965/ftp_core.h"
 
 /* Binding wrapper only. The receiver, controller, publication, and sources

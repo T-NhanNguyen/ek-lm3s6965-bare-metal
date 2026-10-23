@@ -26,10 +26,18 @@ target_compile_options(lm3s6965_bsp
 # A consumer that links this target alone gets the CPU flags, the board linker
 # script, and the C runtime specs.
 target_link_options(lm3s6965_bsp INTERFACE ${LM3S6965_LINK_FLAGS})
+set_property(TARGET lm3s6965_bsp APPEND PROPERTY INTERFACE_LINK_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../linker/lm3s6965.ld")
 
 # Opt-in archives: neither storage nor protocol belongs in the BSP OBJECT
 # library. These targets require no lwIP, startup, syscalls, or linker script.
 add_library(lm3s6965_ftp_core STATIC EXCLUDE_FROM_ALL ftp_core.c)
+if(LM3S6965_FTP_DIAGNOSTIC)
+    target_sources(lm3s6965_ftp_core PRIVATE ftp_diagnostic.c)
+    # PUBLIC reaches boot/TCP archives and final slot/platform consumers, not
+    # merely the executable. OFF builds have neither record nor module code.
+    target_compile_definitions(lm3s6965_ftp_core PUBLIC LM3S6965_FTP_DIAGNOSTIC=1)
+endif()
 add_library(lm3s6965_ram_file STATIC EXCLUDE_FROM_ALL ram_file.c)
 foreach(target IN ITEMS lm3s6965_ftp_core lm3s6965_ram_file)
     target_link_libraries(${target} PUBLIC lm3s6965_ftp_headers)

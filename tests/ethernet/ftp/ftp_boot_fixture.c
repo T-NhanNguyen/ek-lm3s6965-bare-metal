@@ -8,6 +8,7 @@ int ftp_boot_receive_regressions_not_run(void);
 #undef main
 static ftp_boot_t binding;
 static boot_verified_image_t executing;
+static unsigned executing_captures;
 static uint32_t diagnostic_words[16];
 static boot_diag_publication_t publication;
 static int metadata_read(void *ctx, uint32_t address, uint8_t *p, size_t n)
@@ -17,10 +18,12 @@ static int metadata_erase(void *ctx, uint32_t address)
 static int metadata_program(void *ctx, uint32_t address, uint32_t word)
 { (void)ctx; return boot_flash_program(&m.flash, address, word) != BOOT_FLASH_OK; }
 static int executing_source(void *ctx, boot_verified_image_t *out)
-{ (void)ctx; *out = executing; return 0; }
-ftp_boot_t *ftp_boot_fixture_init(bool trial)
+{ (void)ctx; ++executing_captures; *out = executing; return 0; }
+static ftp_boot_t *fixture_init(uint32_t slot, bool trial,
+    const ftp_boot_report_descriptor_t *report)
 {
-    setup(BOOT_SLOT_B, 0, 1);
+    setup(slot ^ 1u, 0, 1);
+    executing_captures = 0;
     /* Fresh independent device case; not a production reinitialization. */
     memset(&binding, 0, sizeof binding);
     memset(&publication, 0, sizeof publication);
@@ -30,21 +33,25 @@ ftp_boot_t *ftp_boot_fixture_init(bool trial)
     assert(boot_diag_publication_progress(&publication, 4, 7) == BOOT_DIAG_PUBLICATION_OK);
     assert(running(&m, &executing) == 0);
     if (trial) {
-        /* Executing image is real authenticated A, now an unconfirmed trial. */
+        /* Executing image is authenticated, now an unconfirmed trial. */
         m.initial.current_slot = BOOT_SLOT_NONE;
-        m.initial.candidate_slot = BOOT_SLOT_A;
+        m.initial.candidate_slot = slot;
         m.initial.confirmed_mask = 0;
-        m.initial.images[0].accounting = BOOT_STATE_TRIAL;
-        m.initial.images[0].trial_id = 19;
+        m.initial.images[slot].accounting = BOOT_STATE_TRIAL;
+        m.initial.images[slot].trial_id = 19;
         encode_initial();
     }
-    ftp_boot_config_t c = { .receiver = &m.receiver, .receive = config(),
+    ftp_boot_config_t c = { .receiver = &m.receiver, .receive = config(), .report = report,
         .publication = &publication,
         .sources = { .metadata = { &m, metadata_read, metadata_erase, metadata_program },
             .running_context = &m, .running = executing_source } };
     assert(ftp_boot_init(&binding, &c));
     m.calls = 0;
     return &binding;
+}
+ftp_boot_t *ftp_boot_fixture_init(bool trial)
+{
+    return fixture_init(BOOT_SLOT_A, trial, NULL);
 }
 size_t ftp_boot_fixture_package(uint8_t *out)
 {

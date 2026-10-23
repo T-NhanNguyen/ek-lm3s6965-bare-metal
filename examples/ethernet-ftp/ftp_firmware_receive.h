@@ -2,7 +2,8 @@
  *
  * Design authority: checked-application-handoff trace f73 (Ethernet receive to
  * stored-firmware mapping design). This module wires the designed ftp_boot
- * operation (STOR firmware/confirm, RETR boot-status) onto the one shared
+ * operation (STOR firmware/confirm, RETR boot-status and optional boot-report)
+ * onto the one shared
  * ftp_core singleton that already serves RAM hello. It performs no transport,
  * flash, watchdog, reset, or LED work itself.
  *
@@ -57,7 +58,10 @@ bool ftp_firmware_receive_bind(const ftp_boot_config_t *config);
  * or NULL when this example has none. Weak default returns NULL (RAM-only
  * fallback). A production consumer overrides this with a strong definition
  * naming its initialized controller, fresh receiver, coherent metadata and
- * running sources, and permitted slot; it must NOT invent fake evidence. */
+ * running sources, and permitted slot; it must NOT invent fake evidence.
+ * Only an opted-in application supplies config.report (static const strings);
+ * the weak default and zero-initialized configurations expose no report.
+ * Prepare the descriptor before binding, never in a live transport callback. */
 const ftp_boot_config_t *ftp_firmware_receive_production_config(void);
 
 #endif

@@ -20,14 +20,22 @@
  * RAM-only hello: no fake evidence is ever supplied.
  */
 
+#include "ftp_firmware_receive.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include "lm3s6965/boot_flash.h"
 #include "lm3s6965/boot_receive.h"
+#include "lm3s6965/boot_snapshot.h"
 #include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_target_io.h"
 #include "lm3s6965/ftp_boot.h"
+#include "lm3s6965/ftp_diagnostic.h"
+#if LM3S6965_FTP_DIAGNOSTIC
+#include "lwip/sys.h"
+#endif
 
 #if !defined(LM3S6965_AB_FTP_SLOT)
 #error "LM3S6965_AB_FTP_SLOT must be 0 (slot A image) or 1 (slot B image)"
@@ -41,6 +49,24 @@ static bool flash_ready;
 static boot_receive_t receiver = BOOT_RECEIVE_INIT;
 static ftp_boot_config_t config;
 static bool configured;
+#if LM3S6965_FTP_DIAGNOSTIC
+static uint32_t diagnostic_clock(void *context)
+{
+    (void)context;
+    return sys_now();
+}
+#endif
+#if LM3S6965_AB_FTP_SLOT == 0
+static const ftp_boot_report_descriptor_t report = {
+    "slot-a-breathing", "Breathing LED with FTP service."
+};
+#elif LM3S6965_AB_FTP_SLOT == 1
+static const ftp_boot_report_descriptor_t report = {
+    "slot-b-blink", "Double-blink LED with FTP service."
+};
+#else
+#error "LM3S6965_AB_FTP_SLOT must be 0 or 1"
+#endif
 
 const ftp_boot_config_t *ftp_firmware_receive_production_config(void)
 {
@@ -64,6 +90,7 @@ const ftp_boot_config_t *ftp_firmware_receive_production_config(void)
         }
         flash_ready = true;
     }
+    config.report = &report;
     config.receiver = &receiver;
     config.receive.flash = &flash;
     config.receive.running_context = continuity;
@@ -81,6 +108,9 @@ const ftp_boot_config_t *ftp_firmware_receive_production_config(void)
     config.sources.metadata = boot_flash_store_adapter(&flash);
     config.sources.running_context = continuity;
     config.sources.running = boot_startup_running;
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_clock(diagnostic_clock, NULL);
+#endif
     configured = true;
     return &config;
 }

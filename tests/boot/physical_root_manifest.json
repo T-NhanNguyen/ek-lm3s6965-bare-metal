@@ -173,7 +173,7 @@
     "preconditions": [
       "local public-only fixtures and provisioned MbedTLS; no setup/download",
       "Python3>=3.9, CMake>=3.20, make; /usr/bin/clang sanitizer support",
-      "official bundle /Users/nhan/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi; no PATH fallback",
+      "official bundle ~/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi by default, or absolute executable BOOT_ARM_GCC; no PATH fallback",
       "temporary builds outside repository because production gate forbids source-tree generated material",
       "exclusive stable source/tool tree throughout each run and between bring-up/verification"
     ],

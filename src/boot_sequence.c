@@ -1,4 +1,9 @@
 #include "lm3s6965/boot_sequence.h"
+
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "lm3s6965/boot_diag.h"
 #include "lm3s6965/boot_handoff.h"
 #include "lm3s6965/boot_launch.h"
@@ -9,12 +14,7 @@
 #include "lm3s6965/boot_startup_gptm.h"
 #include "lm3s6965/boot_startup_producer.h"
 #include "lm3s6965/boot_store.h"
-#include "lm3s6965/boot_verify.h"
 #include "lm3s6965/boot_watchdog.h"
-
-#include <stddef.h>
-#include <stdatomic.h>
-#include <stdint.h>
 
 typedef struct
 {

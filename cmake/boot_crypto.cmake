@@ -12,7 +12,7 @@ set(BOOT_CRYPTO_MODULES
     asn1parse asn1write bignum bignum_core constant_time
     ecdsa ecp ecp_curves platform_util sha256)
 if(NOT EXISTS "${BOOT_MBEDTLS_DIR}/include/mbedtls/build_info.h")
-    message(FATAL_ERROR "Missing local Mbed TLS source. Run python3 scripts/setup-dependencies.py manually; see docs/dependencies.md. Configure never fetches dependencies.")
+    message(FATAL_ERROR "Missing local Mbed TLS source. Run python3 scripts/setup-dependencies.py manually; see docs/toolchain.md. Configure never fetches dependencies.")
 endif()
 set(BOOT_CRYPTO_SOURCES "")
 foreach(module IN LISTS BOOT_CRYPTO_MODULES)

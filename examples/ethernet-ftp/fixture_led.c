@@ -1,4 +1,7 @@
 #include "fixture_led.h"
+
+#include <stdbool.h>
+
 #include "fixture_pattern.h"
 #include "led.h"
 

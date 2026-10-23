@@ -1,44 +1,25 @@
-# Boot target link-time memory layout
+# Boot memory layout and resource validation
 
-This document covers **link-time reservations, artifact contracts and bounded
-`_sbrk` backing**. The opt-in [startup continuity boundary](boot-startup.md)
-adds a signed slot-entry variant with real C initialization; the default startup
-and RAM-only FTP example remain unchanged. No production updater, physical
-clock/watchdog binding or target runtime resource/timing acceptance is implied.
-The partition map remains the approved provisional bench map.
+Flash partitions, NOLOAD reservations and bounded allocator backing are ownership contracts. Link fit is not peak runtime usage. Boot/A/B reserve continuity separately from diagnostics and stack. Standalone FTP reserves 8192 total heap bytes, including static heap inputs.
 
-## Approved FTP capacity increment
+## Find the contract
 
-The user approved **8192 total bytes (+6144 over the former 2048)**, including
-collected static `.heap[.*]` inputs; dynamic backing remains
-`[_heap_static_end, _heap_end)`. Generic heap policy, production allocators,
-64-byte diagnostics, 8192-byte stack and 32768-byte boot flash are unchanged.
-Current standalone FTP static RAM is **39984 bytes**; heap
-`[0x20009c30,0x2000bc30)` leaves **9104 bytes** below diagnostics. Four root
-Debug/Release × painter OFF/ON builds and all **20 ELFs** pass boundary checks.
-The Debug standalone FTP flash ends at 32816/32860, Release at 27612/27656;
-none is a full 32 KiB boot-fit claim.
+- [Flash and SRAM ownership](#flash-and-sram-ownership)
+- [Slot producer](#slot-producer)
+- [Layout validation](#layout-validation)
+- [Final-artifact resource gate](#final-artifact-resource-gate)
+- [Allocator and verifier fixture](#allocator-and-verifier-fixture)
+- [Resource instrumentation](#resource-instrumentation)
+- [Resource runner evidence rules](#resource-runner-evidence-rules)
 
-Debug and Release each pass **15/15 CTest with ASan/UBSan**, no skips. Real linked
-allocator replays now include full 8192-byte static FTP heaps. Synthetic native
-and Ethernet allocator tests retaining 2048 are independent capacity fixtures,
-not production-budget claims. Historical 2 KiB evidence below remains history.
-Isolated full-newlib verification passes at the approved capacity; integrated
-network fragmentation/peak, live publication and full acceptance remain pending.
-See [boot-resources.md](boot-resources.md); independent review is next.
 
-## Contents
+## Flash and SRAM ownership
 
-- [Scripts and flash ownership](#scripts-and-flash-ownership)
-- [SRAM and startup symbols](#sram-and-startup-symbols)
-- [Supported GNU slot producer and packaging](#supported-gnu-slot-producer-and-packaging)
-- [Reproducible host gate](#reproducible-host-gate)
-
-## Scripts and flash ownership
+### Scripts and flash ownership
 
 All scripts are self-contained: existing absolute/out-of-tree `-T` commands do
 not acquire a relative `INCLUDE` dependency. The root example build still uses
-its established scripts; no root slot-selection policy is introduced.
+its established scripts. No root slot-selection policy is introduced.
 
 | Script | Flash-load interval | Separate reserve |
 | --- | --- | --- |
@@ -56,22 +37,22 @@ unwind tables, preinit/init/fini arrays, legacy constructors/destructors), plus
 `.data`'s flash **LMA**, not just its SRAM VMA. Region overflow and the payload-end
 assertion include that initialized-data load. New boot/slot scripts reject
 `.manifest[.*]` and `.metadata[.*]` firmware inputs. Reserves are represented by
-symbols, not emitted manifest/metadata sections; neither 1 KiB manifest tail nor
+symbols, not emitted manifest/metadata sections. Neither 1 KiB manifest tail nor
 metadata bytes are firmware loads. The packager separately produces the signed
 160-byte manifest. Its transport is manifest160 + exact payload, not reserve1024
 + payload, and it is not a directly flash-addressed slot binary.
 
-### Supported allocated inputs — no implicit orphan initialization
+#### Supported allocated inputs. No implicit orphan initialization
 
 All five scripts support only the explicitly matched allocated input sections:
 
 | Input sections | Ownership / initialization |
 | --- | --- |
 | `.isr_vector`, `.text*`, `.rodata*`, `.init`, `.fini` | Flash vectors, code and constants |
-| `.ARM.extab*`, `.ARM.exidx*`, `.preinit_array[.*]`, `.init_array[.*]`, `.fini_array[.*]`, `.ctors[.*]`, `.dtors[.*]` | Flash unwind/constructor content; existing startup constructor contract unchanged |
+| `.ARM.extab*`, `.ARM.exidx*`, `.preinit_array[.*]`, `.init_array[.*]`, `.fini_array[.*]`, `.ctors[.*]`, `.dtors[.*]` | Flash unwind/constructor content. Existing startup constructor contract unchanged |
 | `.data*` | SRAM initialized by the single `_sidata` → `[_sdata, _edata)` copy |
 | `.bss*`, COMMON | SRAM zeroed only in `[_sbss, _ebss)` |
-| `.heap[.*]` | Explicit static heap storage in NOLOAD `.c_heap`; not copied/zeroed by startup |
+| `.heap[.*]` | Explicit static heap storage in NOLOAD `.c_heap`. Not copied/zeroed by startup |
 
 Continuity (boot/A/B only), diagnostic and stack output sections are linker-created NOLOAD reservations,
 not permission to supply arbitrary allocated inputs with those names. The new
@@ -80,24 +61,24 @@ existing specific diagnostic.
 
 After all supported input rules, GNU ld's
 `INPUT_SECTION_FLAGS (SHF_ALLOC) *(*)` catches remaining **retained** allocated
-inputs in `.unsupported_allocated`; an assertion requires its size to be zero
+inputs in `.unsupported_allocated`. An assertion requires its size to be zero
 with **`unsupported allocated input section`**. This is an input-flag filter,
 not a blanket `--orphan-handling=error` policy. The catch precedes
 `.comment`/`.note*` discard rules: retained allocated content cannot silently
 escape through those rules. Nonallocated unknown metadata/debug sections and
-`.ARM.attributes` remain permitted; nonallocated comment/note discard is unchanged.
+`.ARM.attributes` remain permitted. Nonallocated comment/note discard is unchanged.
 
 The engineering GC correction removes only the former broad `KEEP` wrapper
-from this catch in all five scripts; it had rooted supported allocated inputs
+from this catch in all five scripts. It had rooted supported allocated inputs
 as well and defeated dead-code elimination. Known vector/constructor `KEEP`s,
 the catch and assertion are unchanged. The supported policy is **reject every
 retained unknown**: with GC, dead unknown PROGBITS/NOBITS may link only when
 verified absent from the ELF. GNU Arm ld 15.3.rel1 retains even dead allocated
-NOTE; its assertion rejection is intended, never force-discarded. This changes
+NOTE. Its assertion rejection is intended, never force-discarded. This changes
 the prior reject-even-dead regression oracle, not runtime, crypto, memmap or
-startup initialization contracts. See [boot-resources.md](boot-resources.md)
-for the exact 120 proofs and the actual final Release probe that supersedes the
-initial 37112-byte failed placement.
+startup initialization contracts. Use the [layout validation](#layout-validation)
+and [final-artifact resource gate](#final-artifact-resource-gate) to check actual
+retention and flash extents rather than a failed placement estimate.
 
 Unknown file-backed writable SRAM (for example `.extra,"aw",%progbits`),
 unknown allocated read-only/executable sections, and unknown SRAM NOBITS inputs
@@ -111,13 +92,13 @@ Consequently `_flash_payload_end = LOADADDR(.data) + SIZEOF(.data)` is the exact
 last file-backed flash load end for supported content: all supported flash
 content precedes that last initialized SRAM load, and later supported SRAM
 sections/reservations are NOLOAD. The regression independently compares it with
-the actual PT_LOAD file extents; extending this symbol alone would not fix an
-uninitialized writable orphan. Startup initialization is unchanged; allocator
+the actual PT_LOAD file extents. Extending this symbol alone would not fix an
+uninitialized writable orphan. Startup initialization is unchanged. Allocator
 backing is bounded separately as described below.
 
-## SRAM and startup symbols
+### SRAM and startup symbols
 
-Bootloader/A/B scripts now reserve continuity; standalone/generic and standalone
+Bootloader/A/B scripts now reserve continuity. Standalone/generic and standalone
 FTP scripts retain their prior ownership (they must not link the new entry path):
 
 | Ownership | Half-open interval |
@@ -128,12 +109,12 @@ FTP scripts retain their prior ownership (they must not link the new entry path)
 | `.boot_diagnostic`, 64 bytes, **NOLOAD / SHT_NOBITS** | `[0x2000DFC0, 0x2000E000)` |
 | `.stack`, 8192 bytes, **NOLOAD / SHT_NOBITS** | `[0x2000E000, 0x20010000)` |
 
-- `_sidata` is the `.data` flash LMA; `_sdata`/`_edata` delimit only the SRAM copy
+- `_sidata` is the `.data` flash LMA. `_sdata`/`_edata` delimit only the SRAM copy
   range. `_sbss`/`_ebss` delimit only the `.bss` zero range.
 - `_end` and `_heap_start` identify the aligned lower-SRAM heap base.
-  `.heap`/`.heap.*` test/static heap inputs are NOLOAD in `.c_heap`;
+  `.heap`/`.heap.*` test/static heap inputs are NOLOAD in `.c_heap`.
   `_heap_static_end` identifies their end. Boot/slot `_heap_end` is
-  `_continuity_start = 0x2000DBC0`; generic standalone remains `0x2000DFC0`,
+  `_continuity_start = 0x2000DBC0`. Generic standalone remains `0x2000DFC0`,
   preserving all remaining lower-SRAM dynamic capacity rather than
   silently adopting a new 2 KiB limit. Explicit static heap inputs must be
   excluded from dynamic `_sbrk` capacity: dynamic allocation begins at
@@ -150,7 +131,7 @@ FTP scripts retain their prior ownership (they must not link the new entry path)
   words), with a word-multiple size. `_flash_payload_start`,
   `_flash_payload_limit`, and `_flash_payload_end` identify the flash interval
   and actual initialized-load end. Slots additionally export `_manifest_start`
-  and `_manifest_end`; boot exports `_metadata_start` and `_metadata_end`.
+  and `_manifest_end`. Boot exports `_metadata_start` and `_metadata_end`.
 
 The linked allocator replay independently pins its fixture heap start to
 `0x20000040`: maximum static heap is `0xDB80` for boot/A/B, `0xDF80` for generic
@@ -166,7 +147,7 @@ producer vector contents must still be inspected. The packager rejects actual
 MSP bytes other than `0x20010000` and requires a Thumb reset target inside the
 payload. An ELF entry point is not a replacement for validating those vectors.
 
-### Bounded allocator backing — resource acceptance remains pending
+#### Bounded allocator backing. Resource acceptance remains pending
 
 Generic `src/syscalls.c` and standalone FTP `ftp_sbrk.c` retain the API
 `void *_sbrk(ptrdiff_t increment)`. Both initialize the break at
@@ -174,14 +155,14 @@ Generic `src/syscalls.c` and standalone FTP `ftp_sbrk.c` retain the API
 `[_heap_static_end, _heap_end]`, with allocated bytes strictly below `_heap_end`.
 The old generic `_estack - 1024` guard is removed. Static `.heap[.*]` storage
 is never dynamically reused, including when it consumes all available capacity.
-The five linker contracts require `_heap_start <= _heap_static_end <= _heap_end`;
+The five linker contracts require `_heap_start <= _heap_static_end <= _heap_end`.
 the allocator also rejects invalid ordering with `ENOMEM` before subtraction.
 
 A zero increment returns the current break. Successful growth/shrink returns
-the previous break without changing errno; exact-end growth succeeds. Overflow,
+the previous break without changing errno. Exact-end growth succeeds. Overflow,
 underflow and invalid bounds return `(void *)-1`, set `errno = ENOMEM`, and do
 not change the break. Integer-address subtraction establishes available capacity
-before addition/subtraction; negative magnitude handles `PTRDIFF_MIN` without
+before addition/subtraction. Negative magnitude handles `PTRDIFF_MIN` without
 signed negation overflow. No live stack pointer or unrelated-pointer arithmetic
 is used. The contract remains foreground/nonconcurrent, not an ISR/thread-safe
 allocator or an initialized/zeroed static-heap-storage promise.
@@ -190,7 +171,7 @@ ABI evidence is the installed official **Arm GNU Toolchain 15.3.rel1** newlib
 `arm-none-eabi/include/sys/unistd.h:281` (`_sbrk(ptrdiff_t)`) and
 `arm-none-eabi/include/reent.h:154` (`_sbrk_r(struct _reent *, ptrdiff_t)`).
 `tests/boot/sbrk_abi.c` compiles against those headers and verifies that this
-Cortex-M3 target's `ptrdiff_t` is `int`; neither signature is guessed or changed.
+Cortex-M3 target's `ptrdiff_t` is `int`. Neither signature is guessed or changed.
 
 `boot_allocator` tests both complete production units with renamed syscalls and
 fixed synthetic linker symbols, keeping strict warnings and ASan/UBSan. Cases
@@ -199,25 +180,18 @@ nonempty/full static heap, exact boundaries, rejected growth/shrink, errno and
 unchanged-break semantics, and two invalid bound orderings. Fifteen real GNU Arm
 fixture links (all five scripts × empty/nonempty/full static heap) independently
 check ELF symbols against expected addresses and replay those linked heap bounds
-through the native allocator. Allocating diagnostics or stack bytes is rejected;
+through the native allocator. Allocating diagnostics or stack bytes is rejected.
 allowing the break itself at the diagnostic start grants no byte there.
 
-Implementation-side validation: Debug and Release each pass **12/12 CTest**
-with ASan/UBSan; package **20/20** and layout **13/13**, no skips. Existing
-Ethernet platform tests pass. Four root cross-builds (Debug/Release × FTP painter
-OFF/ON, FTP enabled) and all **20 example ELF** memory/reset-vector checks pass.
-The existing authorized OpenSSL package workflow uses the external demo key;
-this increment introduces no private-key copying or output. Independent review
-is the next gate.
+These tests check backing bounds, not peak/live allocator usage, stack
+high-water margin, integrated boot fit or watchdog timing. A stack overflow can
+still overwrite diagnostics. Validate the final linked consumer and its workload
+separately from the isolated verifier probe.
 
-These tests establish backing bounds, **not peak/live allocator usage, stack
-high-water margin, final integrated 32 KiB boot fit or watchdog timing**. The
-separate [verifier resource probe](boot-resources.md) now has an accepted actual
-Release ELF (25476 flash bytes, 7292-byte margin); it is not an integrated
-bootloader. Runtime resource measurements remain pending. A stack overflow can
-still overwrite diagnostics.
 
-## Supported GNU slot producer and packaging
+## Slot producer
+
+### Supported GNU slot producer and packaging
 
 Use the official GNU Arm toolchain with the selected slot script:
 
@@ -230,19 +204,22 @@ arm-none-eabi-objcopy --gap-fill=0xff -O binary /tmp/slot-a.elf /tmp/slot-a.bin
 ```
 
 For B use `app_b.ld`. Real applications supply their usual startup/libraries in
-place of the fixture; the slot page-size option remains required. GNU's default
+place of the fixture. The slot page-size option remains required. GNU's default
 4 KiB page size can put A's header-bearing PT_LOAD at `0x8000`, outside the
 payload. Do not loosen packager bounds to accept that producer. Excessive input
-section alignment can also change PT_LOAD layout; validate every final ELF.
+section alignment can also change PT_LOAD layout. Validate every final ELF.
 
-The layout fixture links with `-z,max-page-size=0x100`; both A and B pass the
+The layout fixture links with `-z,max-page-size=0x100`. Both A and B pass the
 existing packager's ELF and raw canonical-payload paths. Separate explicit-LMA
 gap fixtures verify GNU objcopy `0xFF` gap filling byte-for-byte against that
 packager. Normal default `AT> FLASH` placement is also checked. The existing
-`boot_package` suite supplies external-key signing/OpenSSL/C-verifier coverage;
+`boot_package` suite supplies external-key signing/OpenSSL/C-verifier coverage.
 this layout suite adds no key handling or dependency.
 
-## Reproducible host gate
+
+## Layout validation
+
+### Reproducible host gate
 
 ```sh
 cmake -S tests/boot -B /tmp/lm3s-layout-host-debug \
@@ -250,16 +227,6 @@ cmake -S tests/boot -B /tmp/lm3s-layout-host-debug \
 cmake --build /tmp/lm3s-layout-host-debug -j8
 ctest --test-dir /tmp/lm3s-layout-host-debug --output-on-failure
 ```
-
-Repeat with `Release` and a different build directory. The current host suite
-has eighteen CTest entries, including `boot_allocator` and `boot_diag`.
-At the earlier fourteen-entry gate, Debug and Release each passed 14/14 with
-native ASan/UBSan. `boot_resources` fresh-cross-links the Release Arm fixture
-and runs four artifact/parser tests without executing target code.
-`boot_layout` runs thirteen Python tests with
-real GNU Arm links, no tool-missing skips. `BOOT_ARM_GCC` may select an absolute
-compiler path; otherwise official installed bundles are preferred over PATH.
-No compiler/dependency is downloaded by the test.
 
 The layout tests check all five scripts' exact symbols, section types/ranges,
 PT_LOAD VMAs/LMAs/file spans, constructor loads, initialized data, nonloaded
@@ -272,50 +239,169 @@ fixtures require a specific expected linker diagnostic, not just any link failur
 Allocated orphan regressions now cover six classes (writable/read-only/executable
 PROGBITS, writable NOBITS, allocated NOTE and allocated `.comment` PROGBITS)
 across all five scripts: rooted `main` references with GC, `-u unknown` with GC,
-no GC, and dead GC. All **120/120** satisfy the retained-only property: **90**
-live/rooted/no-GC intended assertion failures, **25** dead PROGBITS/NOBITS links
-with section/symbol absence verified in final ELFs, and **5** dead allocated
-NOTE intended assertion failures because GNU ld retains them. A successful link
+no GC, and dead GC. Live/rooted/no-GC unknown inputs must reject. Dead
+PROGBITS/NOBITS inputs may link only with section and symbol absence checked
+in the final ELF. Allocated NOTE inputs can remain retained even when
+unreferenced, so the expected assertion still applies. A successful link
 is not permitted merely because an input was nominally unreferenced. Additional
 positive fixtures preserve nonallocated custom metadata, debug and ARM attributes
 and still pass exact PT_LOAD/objcopy checks.
 Wrong actual MSP
 bytes are rejected by artifact validation, not falsely claimed as a ld check.
 
-### P2 orphan regression evidence and validation (historical reject-even-dead)
 
-The original evidence below describes the former broad-KEEP implementation.
-The minimal GC correction above supersedes its 50-failure oracle with the
-120-case retained-only proof. Revalidation uses
-`build/resource-host-{debug,release}` and
-`/tmp/lm3s-gc-root-{Debug,Release}-{OFF,ON}`: host **14/14**, package **20/20**,
-layout **13/13**, resources **4/4**, four root FTP configurations and all
-**20 final example ELF** memory/vector checks pass. No runtime execution or
-memory-map/crypto weakening was used; independent review is next.
+## Final-artifact resource gate
 
-Regression-first: before changing any linker script, all 25 new negative
-fixtures linked successfully (five allocated section kinds × five scripts;
-allocated notes were silently discarded). For the 16-byte writable `.extra`,
-all scripts placed its VMA at `0x20000010`, outside the unchanged copy range
-`[0x20000000, 0x20000010)`. Advertised versus actual file-backed PT_LOAD ends:
-bootloader/standalone/FTP `0x12C` versus `0x13C`, A `0x892C` versus `0x893C`,
-B `0x2412C` versus `0x2413C`. After the fix all 50 negative variants, including
-`--gc-sections`, fail with the intended unsupported-input assertion.
+### Reproduce the final-artifact gate
 
-Revalidated using host directories `/tmp/lm3s-orphan-host-{Debug,Release}` and
-root cross-build directories `/tmp/lm3s-orphan-root-{Debug,Release}-{OFF,ON}`.
-GNU fixture compiler: official Arm GNU Toolchain **15.3.rel1**. Independent
-review remains the next gate; these are implementation-side checks.
+From the repository root:
 
-Validation for this fix: Debug and Release each pass **10/10 CTest** with
-host ASan/UBSan; existing package tests **20/20** and layout tests **13/13**, no
-skips. Authorized package tests invoke OpenSSL with the existing external demo
-key through the established workflow; this fix adds no private-key handling. Root cross-builds in Debug/Release, with FTP stack instrumentation OFF
-and ON, all link existing examples. All **20 example ELFs** were also checked
-for exact MSP, diagnostic/stack NOBITS reservations, lower-SRAM data/bss/heap
-bounds, the FTP 2048-byte heap, and the correct normal versus painter reset
-vector. These small fixture and example links do
-**not** prove that a complete verifier/bootloader fits 32 KiB, that an updater
-fits either slot, that runtime heap/stack is adequate, that reset retains SRAM,
-or that watchdog/crypto/flash/network/handoff timing is safe. Hardware and all
-of those memory/timing measurements remain unverified.
+```sh
+cmake -S tests/boot/resource_probe -B build/boot-resource-arm \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchain-lm3s6965.cmake" \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build/boot-resource-arm --parallel
+python3 tests/boot/resource_probe/check.py build/boot-resource-arm/resource_probe \
+  --map build/boot-resource-arm/resource_probe.map
+```
+
+Observed compiler: official local
+`~/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin/arm-none-eabi-gcc`,
+**Arm GNU Toolchain 15.3.Rel1 (Build arm-15.149), GCC 15.3.1 20260627**.
+PATH Homebrew GCC 16.2.0 was not used. Compilation is `-Os`, Cortex-M3, Thumb,
+soft float, function/data sections, no LTO. Link: `-nostartfiles`,
+`--gc-sections`, `-z max-page-size=0x100`, production `linker/bootloader.ld`,
+map and cross references. `CMakeFiles/resource_probe.dir/link.txt` records the
+actual command. The fixture explicitly uses **default full newlib**
+`arm-none-eabi/lib/thumb/v7-m/nofp/libc.a` and corresponding `libgcc.a`, not
+nano/nosys/rdimon or a substitute allocator. The root BSP separately requests
+nano/nosys. These footprints are not interchangeable.
+
+The bounded test-only checker rejects malformed/truncated ELF tables and loads,
+compares actual file-backed PT_LOAD ends with `_flash_payload_end`, enforces
+32 KiB and lower-SRAM bounds, checks vector/MSP/reset and NOLOAD reservations,
+requires retained verifier/crypto/allocator symbols and the 65-byte public-key
+symbol, rejects undefined symbols and unnecessary signing symbols, and checks
+production `_sbrk` / full-newlib map ownership. `boot_resources` creates a fresh
+actual Arm Release probe and runs four positive/negative Python tests, without
+executing target code. Negative mutations cover truncation, bad tables, flash
+load overflow, file-backed reservations, missing closure symbols and wrong
+allocator ownership. This is an engineering artifact gate, not a general ELF
+security parser or runtime measurement.
+
+
+## Allocator and verifier fixture
+
+### Fixture and production allocator closure
+
+`tests/boot/resource_probe/probe.c` retains two real `boot_verify_stored` calls
+from `main`, observable result/read sinks, initialized `.data` and zeroed `.bss`.
+Production `src/startup.c` vectors/reset copy data, clear bss, call
+`__libc_init_array`, and enter `main`. No stack painting, diagnostics publication
+or board MMIO is added. The fixture uses the existing public independently
+signed A manifests for minimum **236-byte** and maximum **111616-byte** payloads.
+Its bounded deterministic chunk reader reconstructs the `i * 17` pattern,
+`0xff` gaps/tail, MSP and Thumb reset vector without staging a maximum payload
+in SRAM. Host verifier tests validate these patterns/manifests. This original Arm
+fixture remains link-only. The separate execution fixture below uses the same
+public signed fixtures (including B's `slot * 31` pattern). Final linked `main` disassembly contains two calls to
+`boot_verify_stored`. Retained final symbols include ECDSA verify, SHA-256
+starts/update/finish and `lm3s6965_boot_demo_public_key` of exactly **65 bytes**.
+
+The reviewed production format/verifier and unchanged ten-module Mbed TLS 3.6.7
+configuration are used. All ten modules still enter archive dependency closure,
+but final garbage collection removes unused signing, signature-writing and
+ASN.1-writing code. Presence in archive closure/cross references is not retention
+in the final image. The shared fixture array still retains fourteen public
+manifests (**2240 bytes**) although only two A modes are called. This overhead is
+reported, not concealed or trimmed to make the link pass.
+
+Production `src/syscalls.c` is a direct executable input. The actual map binds:
+
+```text
+bignum -> calloc -> _calloc_r -> _malloc_r -> _sbrk_r -> production _sbrk
+bignum -> free -> _free_r
+```
+
+Full newlib provides `calloc`, `_calloc_r`, `_malloc_r`, `_sbrk_r`, `free`,
+`_free_r`. `src/syscalls.c.obj` provides `_sbrk`, not libnosys. Static heap inputs
+remain excluded. Diagnostics/stack remain protected. No fault allocator,
+interception or private pool conceals costs. This baseline contains no live-heap instrumentation. The separate execution
+fixture measures requested bytes and production break high-water below, not a
+general fragmentation analysis. Newlib reentrancy/stdio still
+pulls stdio and reentrant syscall adapters without fixture console calls.
+Only test-only `uart0_write_byte`/`trace_write_byte` no-op bindings in
+`console_stubs.c` satisfy production `_write`. No errno or allocator stubs exist.
+The execution fixture does not use `_write` for reporting.
+
+
+## Resource instrumentation
+
+Run reporting, stack-burn and real-allocation calibrations before interpreting
+crypto measurements. Require exact report framing, matching process exit and
+intact guards. Only the deliberate termination calibration may accept exit 1.
+
+```sh
+python3 tests/boot/test_resource_execution.py --evidence /tmp/new-resource-evidence
+```
+
+Use a new evidence destination. The runner builds isolated Arm fixtures and
+executes QEMU, not the board. It compares boot and actual FTP capacities against
+a separately controlled historical 2048-byte negative fixture. That fixture does
+not change the production 8192-byte heap policy.
+
+The strict parser rejects missing/extra/duplicate/malformed reports, crashes,
+timeouts, unexpected/nonmatching exits, wrong error, leaks, overwritten output,
+tracking overflow and damaged guards. Negative parser mutations are exercised.
+Expected FTP OOM is reported as an **expected error test** with harness exit 0.
+it does not mean verification succeeded or the 2 KiB policy passed.
+
+`--wrap=calloc/free/_sbrk` forwards to untouched full-newlib `calloc/free` and
+production `_sbrk`. The disassembly gate proves wrapper forwarding, newlib
+`_sbrk_r` calling the wrapper, a zero-frame scanner without stack/stores/calls,
+and the reset painter's exact literals `[0x2000e000,0x20010000)` plus pattern.
+Maps independently prove full-newlib and production allocator ownership. FTP
+uses unchanged `ftp_sbrk.c` and the reviewed FTP linker. The generic syscall unit
+is separately compiled with only its `_sbrk` symbol renamed and discarded, to
+supply unchanged stdio adapters without a duplicate allocator. It is not a
+substitute allocation algorithm. Positive capacity runs never use injected or
+artificial allocation. The isolated sample fault cases reject the first calloc.
+
+Bookkeeping is a fixed 128-entry pointer/requested-byte table, never mallocs,
+and fails closed on overflow/unmatched free. Requested-live counts measure
+verifier `calloc` requests, not newlib headers/alignment/slack. Every successful
+allocation is really freed, with final tracked bytes/count **0/0**. Backing peak
+and final break measure retained newlib arena. They **do not** return to zero
+when allocations are freed. Initial/full-newlib demand, page alignment and arena
+retention therefore remain visible separately from requested-live bytes.
+
+The painter is enabled via the existing optional startup macro **only in the
+fixture**. Production source/vectors for the original probe are unchanged. The
+64-byte diagnostic reserve is not painted or used as a report ABI. Sixteen
+fixture canaries fill it after startup. Its canaries and the bottom four painted
+stack words survive every run. Scans are taken **before reporting**, are repeated
+with identical depth, and have a verified naked register-only body. Reporting
+cannot contaminate a later case because every case uses a fresh emulator reset.
+Read actual target-emulated MSP separately from written stack depth. Neither
+an emulator stack address nor a host estimate establishes a physical peak.
+
+
+## Resource runner evidence rules
+
+The resource runner retains a unique `/tmp/boot-resource-execution-*` directory:
+per-command argv/timeout/actual exit, separate byte-exact stdout/stderr (bounded
+at 1 MiB each, overflow rejects), timeout/launch-error metadata, build artifacts,
+ELF/map inputs and raw `.su` files. Frame origins/sizes/modes accompany a complete
+measurement. Raw evidence is saved before parsing, including nonzero exits and
+partial timeout output. `--evidence /tmp/<new-directory>` selects an explicit
+new destination. `--json` is restricted to `/tmp`.
+
+The parser allows only one optional exact offline prefix
+`qemu-system-arm: warning: nic stellaris_enet.0 has no peer\n` before the
+single newline-terminated `RESOURCE` report. Unknown/duplicate/trailing warnings,
+extra reports/output, malformed fields and unexpected exits still fail. Only
+deliberate termination calibration case 1 may exit 1. This is not a general
+nonzero-exit exemption. Offline NIC/QEMU arguments are unchanged. No measurement
+is published until all **81 processes**, capacities, guard/leak/peak assertions
+and static-frame checks complete. A parser repair alone does not establish resource fit or classify a production
+failure. Require complete fresh evidence for the exact source and configuration.

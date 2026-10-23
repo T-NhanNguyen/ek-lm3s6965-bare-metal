@@ -11,7 +11,6 @@
 #include "lm3s6965/boot_runtime_watchdog.h"
 #include "lm3s6965/boot_select.h"
 #include "lm3s6965/boot_startup.h"
-#include "lm3s6965/boot_startup_producer.h"
 #include "lm3s6965/boot_store.h"
 #include "lm3s6965/boot_verify.h"
 #include "lm3s6965/boot_watchdog.h"

@@ -49,6 +49,13 @@ fi
 run_binary() { if [[ ${FTP_TEST_BUILD_ONLY:-0} != 1 ]]; then "$@"; fi; }
 CC=${CC:-cc}
 NATIVE=(-std=c11 -g -O1 -Wall -Wextra -Werror)
+# Separate ON/OFF invocations keep diagnostic archives and binaries isolated.
+DIAGNOSTIC_SOURCES=("$ROOT/src/ftp_diagnostic.c")
+DIAGNOSTIC_CMAKE=OFF
+if [[ ${FTP_TEST_DIAGNOSTIC:-0} == 1 ]]; then
+    NATIVE+=(-DLM3S6965_FTP_DIAGNOSTIC=1)
+    DIAGNOSTIC_CMAKE=ON
+fi
 SANITIZERS=(-fsanitize=address,undefined -fno-omit-frame-pointer)
 STRICT=(-Wpedantic -Wconversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes)
 INCLUDES=(-I"$ROOT/include")
@@ -107,15 +114,18 @@ require_lwip() {
 core() {
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${STRICT[@]}" "${INCLUDES[@]}" \
         "$ROOT/tests/ethernet/ftp/ftp_core_test.c" \
-        "$ROOT/src/ftp_core.c" "$ROOT/src/ram_file.c" -o "$BUILD/core"
+        "$ROOT/src/ftp_core.c" "$ROOT/src/ram_file.c" "${DIAGNOSTIC_SOURCES[@]}" -o "$BUILD/core"
     run_binary "$BUILD/core"
+    "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${STRICT[@]}" "${INCLUDES[@]}" \
+        "$ROOT/tests/ethernet/ftp/ftp_diagnostic_test.c" "${DIAGNOSTIC_SOURCES[@]}" -o "$BUILD/diagnostic"
+    run_binary "$BUILD/diagnostic"
 }
 tcp() {
     require_lwip
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${LWIP_FLAGS[@]}" \
         "${LWIP_INCLUDES[@]}" "${INCLUDES[@]}" \
         "$ROOT/tests/ethernet/ftp/ftp_tcp_test.c" \
-        "$ROOT/src/ftp_core.c" "$ROOT/src/ram_file.c" -o "$BUILD/tcp"
+        "$ROOT/src/ftp_core.c" "$ROOT/src/ram_file.c" "${DIAGNOSTIC_SOURCES[@]}" -o "$BUILD/tcp"
     run_binary "$BUILD/tcp"
 }
 lwip() {
@@ -124,18 +134,19 @@ lwip() {
         "${LWIP_INCLUDES[@]}" "${INCLUDES[@]}" \
         "$ROOT/tests/ethernet/ftp/ftp_lwip_test.c" \
         "$ROOT/src/ftp_core.c" "$ROOT/src/ftp_tcp.c" "$ROOT/src/ram_file.c" \
-        "${LWIP_SOURCES[@]}" -o "$BUILD/lwip"
+        "${LWIP_SOURCES[@]}" "${DIAGNOSTIC_SOURCES[@]}" -o "$BUILD/lwip"
     ASAN_OPTIONS="${ASAN_OPTIONS:+${ASAN_OPTIONS}:}detect_leaks=0" run_binary "$BUILD/lwip"
     # Second binary reuses ALL RAM regressions, then adds real boot components.
     # No downloads: the existing boot dependency checks fail closed offline.
     local boot_build=${FTP_BOOT_BUILD_DIR:-$BUILD/boot}
-    cmake -S "$ROOT/tests/boot" -B "$boot_build" -DCMAKE_BUILD_TYPE="${FTP_TEST_CONFIG:-Debug}"
+    cmake -S "$ROOT/tests/boot" -B "$boot_build" -DCMAKE_BUILD_TYPE="${FTP_TEST_CONFIG:-Debug}" \
+        -DLM3S6965_FTP_DIAGNOSTIC="$DIAGNOSTIC_CMAKE"
     cmake --build "$boot_build" --target ftp_boot_fixture --parallel 4
     "$CC" "${NATIVE[@]}" "${SANITIZERS[@]}" "${LWIP_FLAGS[@]}" \
         "${LWIP_INCLUDES[@]}" "${INCLUDES[@]}" -DFTP_BOOT_BINDING_TEST \
         "$ROOT/tests/ethernet/ftp/ftp_lwip_test.c" \
         "$ROOT/src/ftp_core.c" "$ROOT/src/ftp_tcp.c" "$ROOT/src/ram_file.c" \
-        "${LWIP_SOURCES[@]}" \
+        "${LWIP_SOURCES[@]}" "${DIAGNOSTIC_SOURCES[@]}" \
         "$boot_build/libftp_boot_fixture.a" "$boot_build/libftp_boot.a" \
         "$boot_build/libboot_receive.a" "$boot_build/libboot_service.a" \
         "$boot_build/libboot_snapshot.a" "$boot_build/libboot_diag_publication.a" \

@@ -1,20 +1,22 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include "system_control.h"
+
+#include "lm3s6965/ftp_core.h"
+#include "lm3s6965/ftp_tcp.h"
+#include "lm3s6965/ram_file.h"
+#include "lm3s_netif.h"
 #include "memory_map.h"
 #include "net_clock.h"
-#include "lm3s_netif.h"
-#include "lm3s6965/ftp_tcp.h"
-#include "lm3s6965/ftp_core.h"
-#include "lm3s6965/ram_file.h"
+#include "system_control.h"
 #if defined(LM3S6965_FTP_FIRMWARE_RECEIVE)
 #include "ftp_firmware_receive.h"
 #endif
+#include "lwip/err.h"
 #include "lwip/init.h"
 #include "lwip/timeouts.h"
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)
-#include "foreground_owner.h"
 #include "fixture_led.h"
+#include "foreground_owner.h"
 #include "lm3s6965/boot_startup.h"
 #include "lm3s6965/boot_startup_gptm.h"
 #else
@@ -106,11 +108,14 @@ int main(void)
     }
 #if defined(LM3S6965_FTP_FIRMWARE_RECEIVE)
     /* Post-ready bind onto the shared singleton: STOR firmware/confirm plus
-     * RETR boot-status via ftp_boot, alongside the unchanged RAM hello
+     * RETR boot-status and optional boot-report via ftp_boot, alongside RAM hello
      * storage above. Production supplies the real flash/receiver/publication
      * /sources through the production hook; NULL or refusal keeps RAM-only
      * hello (fallback, no quarantine). Still quiescent: no transport start
-     * or foreground turn has run yet. Never touches any watchdog. */
+     * or foreground turn has run yet. This also prepares the optional static
+     * report descriptor; success is checked from a fresh healthy snapshot
+     * only when FTP services RETR, never inferred from binding/startup here.
+     * Never touches any watchdog. */
     (void)ftp_firmware_receive_bind(ftp_firmware_receive_production_config());
 #endif
 #if defined(LM3S6965_FTP_FOREGROUND_OWNER)

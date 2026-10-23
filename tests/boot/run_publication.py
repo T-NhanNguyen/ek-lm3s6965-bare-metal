@@ -30,19 +30,21 @@ OLD_SUFFIXES = ('.c', '.h', '.S', '.cmake', '.txt', '.ld')
 OLD_REQUIRED = ('CMakeLists.txt', 'include/CMakeLists.txt',
     'scripts/validate-boot-public-key.py', 'tests/boot/CMakeLists.txt',
     'tests/boot/run_physical_root.py', 'tests/boot/physical_root_manifest.json',
-    'tests/boot/run_sequence.py', 'tests/boot/sequence_host.c',
+    'tests/boot/run_sequence.py', 'tests/boot/arm_compiler.py', 'tests/boot/sequence_host.c',
     'tests/boot/flash_model.c', 'tests/boot/flash_model.h',
     'tests/boot/verify_fixtures.h', 'tests/boot/test_crypto.c')
 SEQUENCE_DIRS = ('include/lm3s6965', 'config', 'third_party/mbedtls/include',
                  'third_party/mbedtls/library')
 SEQUENCE_REQUIRED = ('src/CMakeLists.txt', 'tests/boot/CMakeLists.txt',
     'cmake/boot_crypto.cmake', 'tests/boot/sequence_host.c', 'tests/boot/run_sequence.py',
+    'tests/boot/arm_compiler.py',
     'tests/boot/sequence_manifest.json', 'tests/boot/flash_model.c',
     'tests/boot/flash_model.h', 'tests/boot/verify_fixtures.h', 'docs/boot-startup.md')
 PROFILES = ('physical-root', 'sequence')
-SEQUENCE_AST = '696143d8a088b42465cf1331e3e473b85bd157e7076a26979acf71ee1b09fcab'
+# Reviewed compiler-selection import/call included in these anchors, not normalized away.
+SEQUENCE_AST = '3d2de90f428872174d86d5b0caa8ac65d02dd38318ba1d4acd77f37c0f1e017c'
 GENERATOR = 'scripts/boot_fingerprints.py'
-UNCHANGED_AST = '71d51ca37cd26e60745665041fc0137be819884b4e1ff82c9a5a21678388b7b4'
+UNCHANGED_AST = 'f78e3c69ce7c0d29a16d31182728cb4f5142249a1bea29fe36ecb52b7659fe24'
 CASES = ('default-cwd', 'public-export', 'source-transition',
          'explicit-tools', 'output-privacy', 'delegation-navigation')
 PLANS = {

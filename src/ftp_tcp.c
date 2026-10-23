@@ -2,16 +2,26 @@
  * Receive ownership: accept one whole chain, defer credit until each prefix is
  * consumed, and refuse subsequent chains without touching them. */
 #include "lm3s6965/ftp_tcp.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "lm3s6965/ftp_core.h"
-#include "lwip/tcp.h"
+#include "lm3s6965/ftp_diagnostic.h"
+#include "lwip/arch.h"
+#include "lwip/err.h"
 #include "lwip/init.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/ip_addr.h"
+#include "lwip/pbuf.h"
+#include "lwip/priv/tcp_priv.h" /* tcp_abandon(reset=0) for offline teardown */
+#include "lwip/sys.h"
+#include "lwip/tcp.h"
 #if LWIP_VERSION_MAJOR != 2 || LWIP_VERSION_MINOR != 2 || LWIP_VERSION_REVISION != 1
 #error "FTP close/refused-data ownership requires review for this lwIP version"
 #endif
-#include "lwip/priv/tcp_priv.h" /* tcp_abandon(reset=0) for offline teardown */
-#include "lwip/sys.h"
-#include <stdbool.h>
-#include <string.h>
 
 struct channel {
     struct tcp_pcb *pcb;
@@ -155,6 +165,9 @@ err_t ftp_tcp_start(const ip4_addr_t *address)
 }
 void ftp_tcp_link_down(void)
 {
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_cause(FTP_DIAG_TCP_LINK_DOWN, sys_now());
+#endif
     close_listener(&passive);
     close_listener(&listener);
     discard(&data, true);
@@ -342,16 +355,35 @@ bool ftp_tcp_service(uint32_t time)
     now = time;
     /* Independent of core reply lifetime: tcp_write may drain the ring while
      * tcp_output still cannot submit anything. Enqueues do not reset this. */
-    if (control.output && (uint32_t)(now - control.output_since) >= 5000u)
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_cause_t control_cause = control.failed ?
+        FTP_DIAG_TCP_CONTROL_ERROR : FTP_DIAG_TCP_CONTROL_FIN;
+    ftp_diagnostic_cause_t data_cause = FTP_DIAG_TCP_DATA_ERROR;
+#endif
+    if (control.output && (uint32_t)(now - control.output_since) >= 5000u) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        if (!control.failed) control_cause = FTP_DIAG_TCP_CONTROL_OUTPUT;
+#endif
         control.failed = true;
-    if (data.output && (uint32_t)(now - data.output_since) >= 5000u)
+    }
+    if (data.output && (uint32_t)(now - data.output_since) >= 5000u) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        if (!data.failed) data_cause = FTP_DIAG_TCP_DATA_OUTPUT;
+#endif
         data.failed = true;
+    }
     if (control.failed || (control.pcb && control.fin)) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        ftp_diagnostic_cause(control_cause, now);
+#endif
         ftp_core_session_lost();
         discard(&control, false);
         discard(&data, false);
         close_listener(&passive);
     } else if (data.failed) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        ftp_diagnostic_cause(data_cause, now);
+#endif
         discard(&data, false);
         ftp_core_data_error(now);
     }

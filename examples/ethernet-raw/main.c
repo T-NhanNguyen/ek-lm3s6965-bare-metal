@@ -12,14 +12,16 @@
  * No long delay loops in the service loop, no hard real-time timing claim.
  */
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+
 #include "ethernet.h"
 #include "memory_map.h"
+#include "raw_protocol.h"
 #include "system_control.h"
 #include "trace.h"
 #include "uart.h"
-#include "raw_protocol.h"
 
 #define REPLY_LIMIT 32u
 #define BUSY_ATTEMPTS 8u

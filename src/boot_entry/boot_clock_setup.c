@@ -1,5 +1,6 @@
 #include "boot_clock_setup.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "lm3s6965/boot_flash.h"

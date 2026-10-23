@@ -2,7 +2,11 @@
 #ifndef LM3S6965_BOOT_STARTUP_PRODUCER_H
 #define LM3S6965_BOOT_STARTUP_PRODUCER_H
 
-#include "lm3s6965/boot_startup_gptm.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_watchdog.h"
 
 /* Explicitly reserved full-width Timer2, not an implicit backend default. */
 #define BOOT_STARTUP_PRODUCER_TIMER 2u

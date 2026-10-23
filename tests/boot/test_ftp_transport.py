@@ -260,7 +260,10 @@ class TransportTests(unittest.TestCase):
             return original(command)
         a.transfercmd = transfer
         self.assertEqual(flow.upload({"A": artifact("A"), "B": artifact("B")}), "UNKNOWN")
+        self.assertEqual(str(flow.upload_diagnostic), "phase=final category=disconnect reply=none")
+        diagnostic = flow.upload_diagnostic
         self.assertEqual(flow.poll(1), "TRIAL")
+        self.assertIs(flow.upload_diagnostic, diagnostic)
         self.assertEqual(flow.trial_id, 21)
         with self.assertRaises(ValueError): flow.upload({"B": artifact("B")})
         self.assertEqual(a.calls.count(("STOR firmware",)), 1)
@@ -318,6 +321,82 @@ class StdlibPathTests(unittest.TestCase):
         self.assertIsNone(tr.ftp)
         self.assertTrue(control.closed)
         self.assertNotIn(b"ABOR", control.sent)
+
+    def test_stor_diagnostics_cover_pre_send_send_and_final_without_retry(self):
+        cases = (
+            # Wrong positive replies must retain their numeric state too.
+            ("type", 0, b"225 SECRET", "reply-state", 225, 0),
+            ("passive", 1, b"425 SECRET", "reply-temporary", 425, 0),
+            ("passive", 1, b"227 SECRET (127,0,0,1,999,1)", "protocol", 227, 0),
+            ("data-connect", None, None, "disconnect", None, 0),
+            ("STOR-preliminary", 2, b"550 SECRET", "reply-permanent", 550, 1),
+            ("STOR-preliminary", 2, b"226 SECRET", "reply-state", 226, 1),
+            ("send", None, None, "timeout", None, 1),
+            ("final", 3, b"550 SECRET", "reply-permanent", 550, 1),
+            ("final", 3, b"250 SECRET", "reply-state", 250, 1),
+            ("final", 3, None, "disconnect", None, 1),
+            ("final", 3, b"226 complete", "timeout", None, 1),
+        )
+        body = artifact("B")
+        for phase, index, reply, category, code, stor_count in cases:
+            with self.subTest(phase=phase, reply=reply):
+                replies = self.transfer_replies.copy()
+                if index is not None:
+                    replies[index:index + 1] = [] if reply is None else [reply]
+                with self.wire(self.setup_replies + replies) as (tr, c, d, ctor):
+                    tr.connect()
+                    if phase == "data-connect":
+                        d.connect = mock.Mock(side_effect=ConnectionRefusedError("SECRET"))
+                    if phase == "send":
+                        d.send = mock.Mock(side_effect=TimeoutError("SECRET"))
+                    if phase == "final" and category == "timeout":
+                        original_recv = c.recv
+                        def final_timeout(count):
+                            if c.body.startswith(b"226 complete\r\n"):
+                                # Timeout only after the full send and data close.
+                                self.assertEqual(bytes(d.sent), body)
+                                self.assertTrue(d.closed)
+                                self.assertEqual(c.timeouts[-1], 5)
+                                raise TimeoutError("SECRET")
+                            return original_recv(count)
+                        c.recv = final_timeout
+                    with self.assertRaises(OSError) as caught:
+                        tr.stor("firmware", body)
+                    failure = caught.exception
+                    self.assertEqual(failure.diagnostic, t.FTPDiagnostic(phase, category, code))
+                    self.assertNotIn("SECRET", str(failure) + repr(failure) + str(failure.diagnostic))
+                    self.assertTrue(failure.__suppress_context__)
+                    self.assertIsInstance(failure, t.ProtocolError if category.startswith("reply-") else OSError)
+                    self.assertEqual(c.sent.count(b"STOR firmware\r\n"), stor_count)
+                    self.assertNotIn(b"ABOR", c.sent)
+                    self.assertNotIn(b"QUIT", c.sent)
+                    self.assertIsNone(tr.ftp)
+                    self.assertTrue(c.closed)
+                    if ctor.call_count == 2:
+                        self.assertTrue(d.closed)
+                    self.assertEqual(bytes(d.sent), body if phase == "final" else b"")
+                    if phase == "final":
+                        self.assertEqual(ctor.call_count, 2)  # No reconnect/retry.
+
+    def test_setup_diagnostics_are_allowlisted_and_redacted(self):
+        for phase, index, reply, category, code in (
+            ("connect", 0, b"421 SECRET", "reply-temporary", 421),
+            ("login", 2, b"530 SECRET", "reply-permanent", 530),
+            ("type", 3, b"226 SECRET", "reply-state", 226),
+            ("connect", 0, b"bad SECRET 530", "protocol", None),
+        ):
+            with self.subTest(phase=phase):
+                replies = self.setup_replies.copy()
+                replies[index] = reply
+                with self.wire(replies) as (tr, c, _, _):
+                    with self.assertRaises(t.ProtocolError) as caught:
+                        tr.connect()
+                    self.assertEqual(caught.exception.diagnostic, t.FTPDiagnostic(phase, category, code))
+                    self.assertNotIn("SECRET", str(caught.exception.diagnostic))
+                    self.assertNotIn(b"STOR", c.sent)
+        for args in (("SECRET", "io"), ("final", "SECRET"), ("final", "io", "530 SECRET")):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                t.FTPDiagnostic(*args)
 
     def test_real_parser_success_numeric_connects_no_resolver(self):
         with self.wire(self.setup_replies + self.transfer_replies) as (tr, c, d, ctor):

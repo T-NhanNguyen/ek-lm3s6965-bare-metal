@@ -1,6 +1,9 @@
-#include "lm3s6965/boot_startup.h"
-#include "led.h"
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "blink_pattern.h"
+#include "led.h"
+#include "lm3s6965/boot_startup.h"
 
 /* Bounded software work, not a calibrated delay. Keep the hold present at -Os.
  * Never claim a blink timing or period from the nominal CPU clock. */

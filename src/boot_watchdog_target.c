@@ -1,6 +1,10 @@
 #include "lm3s6965/boot_watchdog_target.h"
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+
+#include "lm3s6965/boot_watchdog.h"
 
 #define WDT_CLOCK UINT32_C(8)
 

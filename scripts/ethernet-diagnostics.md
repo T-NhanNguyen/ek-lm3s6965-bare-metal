@@ -1,82 +1,22 @@
-# Ethernet reference and evidence
+# Ethernet diagnostics
 
-This note records bare-metal Ethernet diagnostics and their evidence limits.
-It is not a complete Ethernet study guide.
-Physical initialization and successful link negotiation were observed
-on 2026-10-05. The installed board application is now the RAW diagnostic.
-The user reported elevated helper failures before the frame experiment.
-The corrected helper's elevated retry and raw-frame exchange remain unverified.
-Bidirectional frame exchange, IP, FTP, and cable-cycle recovery remain untested.
+Use this guide to distinguish PHY readiness from exact RAW frame exchange. Neither result proves IP or FTP. Confirm the installed image before any operation. The RAW launcher defaults to LIVE traffic even with no arguments. Link live capture resets the target. Flash overwrites firmware. Obtain fresh approval for traffic, flash, reset, capture and cable operations. All commands below run from the repository root.
 
-## Host observations and completed offline FTP source
 
-These observations come from the session record, not new checks in this documentation pass.
-The record supplies no timestamp for the latest local check.
-Earlier dated captures below remain historical evidence.
+## Offline tooling and diagnostic identities
 
-The topology is a direct cable from the Mac USB Ethernet adapter to the MCU.
-The service name is `USB 10/100/1000 LAN`. It maps to `en7`.
-The adapter MAC is `00:e0:4c:68:0f:c0`. Its exact model remains unknown.
-The latest local check reported an active `100baseTX` link with full duplex.
+### Current offline tooling
 
-| Endpoint or setting | Latest session observation or selection |
-|---|---|
-| Mac USB IPv4 | Assigned `192.168.7.1/24` |
-| USB subnet route | `192.168.7.0/24` through `en7` |
-| USB gateway | None |
-| USB service DNS | `127.0.0.1` |
-| Wi-Fi IPv4 | Unchanged DHCP on `en0`, `10.0.0.2/24` |
-| Wi-Fi gateway and DNS | Gateway `10.0.0.1`, DNS `127.0.0.1` |
-| Default route | Through `en0` |
-| MCU IPv4 | Selected firmware address `192.168.7.2/24`, not an observed address |
-
-The latest USB service DNS result is `127.0.0.1`, despite an earlier clear and verification.
-That earlier result does not prove the current DNS state.
-The documentation pass changed no host settings and ran no network or hardware probes.
-Host link and route observations do not prove MCU IP operation.
-Physical IP and FTP remain unverified.
-
-The user selects a separate bare-metal lwIP FTP server on the board.
-The Mac acts as the FTP client.
-Upload the local file `hello` as binary bytes into bounded MCU RAM.
-Then download the stored bytes and compare them with the original file.
-Require identical byte count and content. A hash can support the comparison.
-This selection supersedes the earlier fixed-download-only scope.
-Do not write flash or a filesystem. Do not use the upload for firmware updates.
-The separate `lm3s6965_ethernet_ftp` source is now complete and tested offline.
-The build option defaults OFF. lwIP 2.2.1 is pinned to
-`77dcd25a72509eb83f72b033d219b1d40cd8eb95`.
-The approved contract is anonymous passive binary upload/download of `hello` or `/hello`, at most 4096 bytes.
-Empty uploads are allowed. Staging commits only after successful server FIN enqueue and safe PCB release.
-Failed uploads retain the previous file. Reset clears it. No filesystem or flash storage is used.
-FTP needs a control connection and a separate data connection.
-Login or link readiness alone cannot prove the selected round trip.
-
-See [FTP source, build, resource evidence, and future client test](ftp.md).
-The [reusable library guide](ftp-library.md) covers core/TCP/RAM sources under `src/`
-and public `include/lm3s6965/` APIs. Buffers, `hello`, and the address belong to the example.
-Extraction is complete offline. It adds no physical acceptance or shared-TCP-stack support.
-That page includes locally verified curl FTP support and a safe temporary-output byte comparison.
-The procedure starts only after separately authorized flashing and network testing.
-No standalone `ftp` CLI options are verified.
-This documentation update ran no builds, network probes, hardware operations, or host configuration changes.
-
-## Current offline tooling
-
-See the [tooling tree and suite list](../scripts/ethernet/README.md).
+See the [tooling tree and suite list](ethernet/README.md).
 `./scripts/ethernet/test.sh` and `./scripts/ethernet/test.sh all` are offline-only.
 Select `ftp file`, `platform`, `consumer`, `driver`, `raw`, or `link` as needed.
 Use `--help` or `--list` alone for usage or suite names.
-Latest independent cleanup verification passed ten native ASan/UBSan executables, three CLI tests, and 41 link Python tests.
-The external consumer compiled and linked only. It was not executed.
-Cleanup added no firmware build, physical link, packet, IP, or FTP evidence.
+The external consumer is compile/link only. Native fixtures do not prove
+physical link, packet delivery, IP or FTP.
 
 The raw launcher defaults to **LIVE** traffic, including with no arguments.
-Its `--build-only` mode compiles without device access. Its `--self-test` mode is offline.
-Link live capture resets the target. These live paths are excluded from the consolidated runner.
-Obtain fresh authorization before either live path. Earlier approvals do not carry forward.
 
-## Distinct diagnostic targets
+### Distinct diagnostic targets
 
 | Target | Purpose | Board MAC |
 |---|---|---|
@@ -88,7 +28,7 @@ They are not interchangeable. The link evaluator requires the link identity.
 Do not use `scripts/ethernet/link/ethernet-link-test.sh` with the RAW image.
 It resets the board and then rejects the RAW identity.
 
-## RAW frame experiment
+### RAW frame experiment
 
 The separate source is `examples/ethernet-raw`. Build without hardware access:
 
@@ -108,7 +48,7 @@ undefined-behavior sanitizers. It opens no BPF device and sends nothing.
 `--build-only` compiles without BPF access. Compile as a regular user.
 The script refuses root compilation. It does not install dependencies.
 
-### Exact frame contract and bounds
+#### Exact frame contract and bounds
 
 Each request and reply is exactly 60 bytes, from destination address through
 payload. These bytes exclude preamble and FCS. No extra padding is requested.
@@ -154,12 +94,11 @@ extend wall-clock time. This is not a hard real-time service or network stack.
 `raw reply submitted ... (not delivered)` records driver submission only.
 The `submitted` counter does not prove wire delivery or host reception.
 
-### Explicit host permission and later user commands
+#### Explicit host permission and later user commands
 
 Native macOS BPF needs read/write access to one available BPF device.
-The observed devices were root-owned, mode `0600`. Nonroot access checks
-were false. The read-only check opened no BPF device.
-This is the current live-test permission blocker, not a build blocker.
+Root-owned mode-0600 devices prevent ordinary-user access. Inspect narrow
+permissions separately from build success.
 Do not apply broad `chmod` access or add automatic `sudo`.
 The script and helper change no host network settings or interface flags.
 They do not enable promiscuous mode or provide a permissions installer.
@@ -179,7 +118,7 @@ Ordinary Darwin `getgroups` must then return only the target effective GID,
 not an empty list.
 Root invocation without valid nonzero sudo identities is refused.
 The privilege drop retains the open BPF descriptor's raw-frame capability.
-It is not removal of packet access. The corrected elevated path is unverified.
+It is not removal of packet access. Privilege-drop checks do not prove a live exchange.
 If narrow BPF access is already available, the regular-user command is:
 
 ```sh
@@ -189,84 +128,19 @@ If narrow BPF access is already available, the regular-user command is:
 That script builds and then sends. Its default interface is also `en7`.
 Use `--help` for its actual CLI. Build-only and self-test modes do not send.
 
-### Darwin singleton correction and latest user evidence
 
-The user supplied a later 30-second RAW console capture.
-It reported `raw init=OK`, link up, and MAC readiness one.
-Accepted and submitted counts stayed zero. RX drops reached six.
-RX and poll error counts stayed zero. Dropped-frame source/content are unknown.
-The accompanying host failure was exactly:
+## Darwin privilege verification
 
-```text
-Privilege drop: process supplementary groups not empty (1)
-```
+Use ordinary `getgroups`, not Darwin account-default group enumeration. After `setgroups(0, NULL)`, Darwin retains the effective-GID singleton. Require exactly one returned group equal to validated `SUDO_GID`, matching real/effective UID/GID and `setuid(0)` failure with `EPERM`. Reject extra groups and failed count/fetch checks. The open BPF descriptor retains raw-frame capability after the drop. Never apply broad device permissions or automatic sudo.
 
-The helper stopped before the frame experiment. No raw exchange was tested.
-The earlier three-drop readiness capture below remains historical evidence.
-The reported count does not identify the user's actual GID.
-The corrected runtime retry remains pending.
 
-The previous empty-list requirement was wrong on Darwin, even with ordinary
-`getgroups`. Apple official XNU source at pinned commit
-`f6217f891ac0bb64f3d375211650a4c1ff8ca1ea` explains the singleton:
+## Capture and RAW acceptance
 
-- [kern_prot.c lines 414–448][xnu-getgroups] return credential groups.
-- [kern_prot.c lines 1334–1373][xnu-setgroups] retain an effective-GID slot
-  for a zero-group request.
-- [kern_credential.c lines 1864–1917][xnu-egid] maintain the effective GID
-  in the first group slot.
-- [ucred.h line 211][xnu-ucred] documents that slot as the effective GID.
-
-Commit `ac9718fb1af618d5ce8678d0dc6e8a58f252216f`
-[corroborates these semantics][xnu-corroboration].
-These references do not establish the exact running-kernel source mapping.
-No network lookup ran for this documentation update.
-
-The current verifier requires `getgroups(0, NULL)` to return one.
-It then requires `getgroups(1, &actual_gid)` to return one and the fetched
-GID to equal the validated target `SUDO_GID`.
-It rejects extra groups, count/fetch failures, and a wrong singleton GID.
-Real/effective identity checks and `setuid(0)` failure with `EPERM` remain.
-Rebuild as a regular user, then run the explicit sudo binary shown above.
-No flash is needed. The optional 30-second console command resets RAW.
-Wait for init and negotiated readiness before starting the helper.
-
-### Native BPF privilege-drop troubleshooting (earlier correction)
-
-The singleton correction above supersedes the earlier empty-list assumption.
-
-The user ran the old helper with sudo and reported a generic privilege-drop
-error. That message does not identify the actual failing operation.
-The original runtime failure remains undiagnosed.
-Offline inspection verified a separate compile-time API mismatch:
-`_DARWIN_C_SOURCE` selects Darwin's extended `getgroups` API.
-That API reports account-default groups, not ordinary process supplementary
-groups. It cannot verify the process credential after `setgroups(0, NULL)`.
-
-The correction is isolated in `scripts/ethernet/raw/host/ethernet_raw_privilege.c`.
-It undefines `_DARWIN_C_SOURCE` and `_DARWIN_UNLIMITED_GETGROUPS` before
-any headers. Other translation units retain native Darwin BPF declarations.
-The helper retains nonzero sudo identity validation, group clearing, real
-and effective UID/GID checks, and the irreversible-drop check.
-It requires `setuid(0)` to fail with `EPERM` before the packet loop.
-New errors identify the failing operation or verification condition.
-
-The helper was rebuilt offline. Mocked privilege tests, protocol/capture
-sanitizer tests, and native symbol checks passed. The helper references
-ordinary `_getgroups`, not `_getgroups$DARWIN_EXTSN`.
-Independent review reported no blockers. These checks do not prove an
-elevated run, live BPF behavior, or raw-frame exchange.
-
-Retry with the two commands above, compiling as your regular user.
-If it fails, paste the precise new operation-specific error and full output.
-No board flash is needed for this host-helper-only correction.
-The installed RAW image and prior readiness observations remain unchanged.
-
-### Optional two-terminal evidence capture
+#### Optional two-terminal evidence capture
 
 These are later user operations, not offline validation. Obtain approval.
-The RAW image is already installed. If installation is needed on another
-board, flash only the explicit RAW ELF after separate approval:
+Confirm the installed image. If installation is needed, flash only the explicit
+RAW ELF after separate approval:
 
 ```sh
 scripts/flash.sh build/examples/ethernet-raw/lm3s6965_ethernet_raw
@@ -293,7 +167,7 @@ Board request/nonce records and submission records are companion evidence.
 Only matching incoming replies establish this host experiment's acceptance.
 `CONSOLE CAPTURE OK` still proves startup-marker reception only.
 
-### Actual host output and acceptance
+#### Actual host output and acceptance
 
 The following template comes from `scripts/ethernet/raw/host/ethernet_raw_test.c`, not a live run.
 `<interface>` and `<16 uppercase hex digits>` denote runtime values.
@@ -317,44 +191,19 @@ RAW FRAME FAIL matched=<completed>/3 seq=<failed sequence> (timeout or I/O/valid
 
 Setup failures return 1 with their own diagnostic, possibly before the banner.
 They do not necessarily emit `RAW FRAME FAIL`. CLI errors return 2.
-No host PASS, packet-transfer acceptance, IP, FTP, or full-MTU result exists yet.
+A RAW PASS establishes only the three exact exchanges, not IP, FTP or full MTU.
 
-### Physical readiness observed: 2026-10-05
 
-The approved RAW flash reported `Verified OK` and reset the target.
-The session records this flashed ELF SHA256:
+## Link build, capture and acceptance
 
-```text
-8f972c99cd766d4f92af51dcdb1391e4288902f1bdfeb372fc5f724d81b9c7b9
-```
-
-The console identifies `LM3S6965 Ethernet RAW frame diagnostic`.
-PLL locked at 50 MHz and `raw init=OK` was observed.
-Status changed from down/pending to up/complete with `mac_ready=1`.
-The read-only host companion observed active `100baseTX`, full duplex.
-The exact adapter model remains unknown.
-All observed RAW counters had `accepted=0`, `submitted=0`, and `pending=0`.
-Poll, RX, and TX error counters were zero. `rx_dropped` reached three.
-The dropped frames' source and content are unknown.
-Do not call them matching requests or known unrelated traffic.
-This is initialization and negotiated readiness, not successful raw exchange.
-The prior readiness capture included no elevated helper or live packet test.
-The later user-reported helper failure does not establish packet acceptance.
-
-Protocol/capture sanitizer tests and all four firmware builds passed in the
-implementation checks. Independent review reported no blockers.
-Those checks do not remove the BPF permission blocker or prove wire transfer.
-
-## Bare-metal link diagnostic
+### Bare-metal link diagnostic
 
 The separate `lm3s6965_ethernet_link` target is in `examples/ethernet-link`.
 It uses the BSP startup code and the bare-metal link settings.
 It does not change the OLED, switch, or FreeRTOS applications.
-The initial physical run observed initialization, but no link up.
-The repeat run below observed successful physical negotiation.
 A successful build is not a physical link result.
 
-### Build only
+#### Build only
 
 Run these commands from the repository root. They do not access hardware.
 
@@ -371,13 +220,13 @@ To build the existing applications too, use:
 cmake --build build --target lm3s6965_firmware lm3s6965_freertos_firmware
 ```
 
-### Later physical operations: approval required
+#### Later physical operations: approval required
 
 Do not run these commands as part of build validation.
 Obtain approval before flash, reset, capture, or cable operations.
 Flash overwrites the current firmware. Capture resets the target.
-The user approved the flash, reset, and SWO capture recorded below.
-This approval did not include host network settings changes.
+Approval for a previous capture does not authorize a new operation or host
+network settings changes.
 
 After approval, flash the explicit diagnostic path:
 
@@ -397,7 +246,7 @@ The diagnostic uses PHY link signaling, not IP configuration.
 The evaluator needs `python3` on `PATH` and uses the standard library.
 Live capture also needs `openocd` on `PATH` and Python with `pyftdi`.
 The helper tries `PYFTDI_PYTHON`, repository `.venv/bin/python`, then
-`python3`. See [console setup](console.md) for capture requirements.
+`python3`. See [console setup](../docs/bring-up.md) for capture requirements.
 
 The capture script starts the reader before reset. It keeps the SWD probe
 attached during capture. The board CPLD needs this state to route SWO.
@@ -410,9 +259,9 @@ The capture helper matches `bring-up complete` and reports
 Ethernet init failed. It does not accept link or packet transfer.
 Historical helper captures used the old console `PASS` line.
 That output had the same console-only scope.
-See [console output](console.md) for its exact wording.
+See [console output](../docs/bring-up.md) for its exact wording.
 
-### Link acceptance and output
+#### Link acceptance and output
 
 Live evaluation requires a successful capture exit before checking text.
 The evaluator then requires:
@@ -438,18 +287,12 @@ A live reader timeout denies acceptance and prevents an unsafe device close.
 Successful decoding uses an immutable snapshot after verified reader termination.
 Malformed or unknown probe metadata cannot establish acceptance.
 Probe stderr uses JSON strings outside decoded firmware boundaries.
-See [console capture](console.md) for command receipts and probe status limits.
+See [console capture](../docs/bring-up.md) for command receipts and probe status limits.
 A generic `CONSOLE CAPTURE OK` can therefore precede a link failure.
 
 On success, exit status is 0. The result line starts with
 `ETHERNET LINK PASS: `, then reports negotiated modes, sample count,
 and consecutive final healthy sample count.
-For the historical repeat text, its summary is the following two strings
-joined with one space:
-
-- `100 Mbps full duplex, 10 samples observed,`
-- `8 consecutive final healthy samples`
-
 Success then prints these exact lines:
 
 ```text
@@ -457,21 +300,7 @@ Link only. TX/RX, IP, FTP, and cable-cycle operation were not evaluated.
 Sample indices do not measure wall-clock duration.
 ```
 
-Evaluation failure returns exit status 1 and prints
-`ETHERNET LINK FAIL: ` followed by the reason, then the link-only line.
-For all-down samples, the exact result line is:
-
-```text
-ETHERNET LINK FAIL: need at least two consecutive final healthy samples
-```
-
-A failed capture instead prints `ETHERNET LINK FAIL: console capture
-exit status N` on one line, with the actual status in place of `N`.
-A positive capture status is returned unchanged.
-A signal status is converted to 128 plus the signal number.
-Argument errors use the parser usage/error output and exit status 2.
-
-### Offline saved-text evaluation
+#### Offline saved-text evaluation
 
 ```sh
 ./scripts/ethernet/link/ethernet-link-test.sh --capture-file saved-capture.txt
@@ -501,66 +330,10 @@ Historical captures cannot prove that the old helper did not normalize
 an absent firmware newline. Offline PASS checks the saved text only.
 It cannot establish live provenance or the original capture exit status.
 
-Historical evaluator checkpoint: prior real capture logs and 15 offline
-fixture/process-seam tests were checked; no fresh physical test ran.
-That count is superseded by the latest offline validation: 23 link tests
-and 18 capture-lifecycle tests passed with mocked hardware and capture
-operations. These results make no hardware or current user-activity claim.
 
-### Historical initial physical run: 2026-10-05
+## Driver behavior and reference
 
-The separate diagnostic and both existing firmware targets built successfully.
-Host driver tests passed with address and undefined-behavior sanitizers.
-The diagnostic used 6668 bytes of text, 92 bytes of data, and 376 bytes of BSS.
-Independent review found no safety blockers. Style findings were corrected.
-The long pinned reference URL has an explicit line-length exception.
-
-The approved flash used the explicit diagnostic ELF path shown above.
-OpenOCD reported `Verified OK` and reset the target.
-The flashed ELF SHA256 was:
-
-```text
-ebe9745a3a127df706a2bc1e55c91c3c77f174f954fb1db0a6bf481d11b4a28f
-```
-
-That link diagnostic replaced the previous demo at the time.
-The RAW diagnostic now supersedes it on the board.
-A 10-second SWO capture at 1000000 baud returned exit status 0.
-The console reported PLL lock at 50 MHz and `init=OK`.
-All ten samples, numbered 0–9, reported `poll=OK` and `poll_errors=0`.
-Each reported `link=down`, `negotiation=pending`, and `mac_ready=0`.
-Speed and duplex remained `unknown`. No transitions were observed.
-The script PASS confirms console reception only, not physical link acceptance.
-
-No inspected wired host interface reported an active link.
-The connected adapter mapping, model, and actual compatibility remain unverified.
-No diagnosis is established. Frame transfer and FTP were not tested.
-No cable-cycle test ran, and no host network settings changed.
-These down-link observations are historical, not the current link result.
-PHY-only link testing needs no IP address configuration.
-
-### Repeat physical link result: 2026-10-05 — SUCCESS
-
-The repeat console capture reports PLL lock at 50 MHz and `init=OK`.
-All ten samples, numbered 0–9, report `poll=OK` and `poll_errors=0`.
-Samples 0–1 report down/pending, unknown speed and duplex, and `mac_ready=0`.
-Samples 2–9 report up/complete, 100 Mbps, full duplex, and `mac_ready=1`.
-One startup up transition was observed between samples 1 and 2.
-This is successful physical negotiation, not packet-transfer acceptance.
-The startup banner and script PASS remain console evidence only.
-
-The read-only host checks before and after capture report an active link.
-Both report `100baseTX` and full duplex. No host settings changed.
-The exact adapter model remains unknown.
-The user reported cable reseating and working green/amber LEDs.
-These are user observations, not independent optical measurements.
-The evidence does not prove that cable reseating caused the successful link.
-
-Frame RX/TX, IP, and FTP remain untested.
-No deliberate unplug/replug recovery test ran during this capture.
-Deliberate cable-cycle recovery remains pending and requires approval.
-
-### State and limits
+#### State and limits
 
 The application configures the PLL first. It uses 50 MHz on PLL lock, or
 8 MHz from the external crystal on PLL timeout. It reports this choice.
@@ -604,7 +377,7 @@ Do not treat this diagnostic as an RX or packet-transfer test.
 On init timeout, clocks remain enabled and reset is released, as specified
 by the driver. The application performs no rollback.
 
-## Accepted DriverLib reference
+### Accepted DriverLib reference
 
 The user accepts this third-party reference for an iterative proof of concept
 (PoC). Official TI package authentication is not a progress gate.
@@ -627,7 +400,7 @@ Its verified SHA256 is:
 f8da619db84b6196dab0c96f21e0cd84d62f11c6073916f5fd2f3b0c374c7341
 ```
 
-### RX count and FIFO drain
+#### RX count and FIFO drain
 
 `EthernetPacketGetInternal` implements the receive logic used by
 `EthernetPacketGet`. Line numbers below refer to the pinned source.
@@ -647,8 +420,6 @@ The code drains a truncated packet too.
 These source observations corroborate the driver's RX convention.
 They do not prove physical FIFO behavior.
 
-## Evidence limits and local documents
-
 - **Documentary evidence:** The [MCU datasheet][datasheet] defines the part.
   RX references include pages 554–555, 560, 568, and 578.
   Printed and PDF page numbers match in these sections.
@@ -657,15 +428,9 @@ They do not prove physical FIFO behavior.
   printed/PDF pages 11–12. PDF page 18 shows Rev-D schematic sheet 1 of 3.
   That sheet has no separate printed book-page number.
   A schematic documents a circuit. It does not verify board operation.
-- **Host-model evidence:** `tests/ethernet/platform/ethernet_test.c` checks software against a
-  simulated register and FIFO model. Its assumptions are not independent
-  hardware evidence. Passing host tests cannot prove the RX count convention.
-- **Physical evidence:** The initial run observed initialization and ten
-  down-link polls. The repeat observed successful 100 Mbps full-duplex negotiation.
-  The later RAW readiness run also observed initialization and negotiated
-  readiness, with no accepted requests or submitted replies.
-  These runs do not establish bidirectional frame exchange, IP, FTP, or
-  deliberate cable-cycle recovery.
+- **Host-model evidence:** `tests/ethernet/platform/ethernet_test.c` checks a simulated
+  register and FIFO model. Its assumptions do not independently establish
+  physical RX count or FIFO behavior.
 
 [xnu-getgroups]: https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_prot.c#L414-L448
 [xnu-setgroups]: https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/kern_prot.c#L1334-L1373

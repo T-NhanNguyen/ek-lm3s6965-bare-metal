@@ -16,7 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.boot_fingerprints import source_fingerprints
 
-GCC = Path('/Users/nhan/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/bin/arm-none-eabi-gcc')
+from arm_compiler import arm_gcc
+
+GCC = arm_gcc()
 BIN = GCC.parent
 CC = Path('/usr/bin/clang')
 CASES = ('signed-run', 'early-stop', 'producer-stop', 'capture-read-failure',

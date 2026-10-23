@@ -56,6 +56,8 @@ target_link_options(lm3s6965_ethernet_ftp PRIVATE
     "-T${CMAKE_CURRENT_SOURCE_DIR}/lm3s6965_ftp.ld"
     -Wl,--gc-sections -Wl,-Map=lm3s6965_ethernet_ftp.map
     -nostartfiles --specs=nano.specs --specs=nosys.specs)
+set_property(TARGET lm3s6965_ethernet_ftp APPEND PROPERTY LINK_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/lm3s6965_ftp.ld")
 if(LM3S6965_FTP_STACK_MEASUREMENT)
     # The BSP's independent startup compilation and all unrelated targets stay
     # unchanged. No optimization override: Release keeps the existing -Os.

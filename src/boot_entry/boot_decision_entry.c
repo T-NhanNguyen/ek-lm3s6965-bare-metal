@@ -1,12 +1,28 @@
 #include "boot_clock_setup.h"
 
-#include <stdint.h>
-
-#include "lm3s6965/boot_target_io.h"
 #if defined(LM3S6965_BOOT_DISPATCH_IMAGE)
 #include <stddef.h>
+#endif
+#include <stdint.h>
+
+#include "lm3s6965/boot_flash.h"
+#if defined(LM3S6965_BOOT_DISPATCH_IMAGE)
+#include "lm3s6965/boot_handoff.h"
 #include "lm3s6965/boot_handoff_target.h"
 #endif
+#include "lm3s6965/boot_launch.h"
+#include "lm3s6965/boot_reset_handler.h"
+#if defined(LM3S6965_BOOT_DISPATCH_IMAGE)
+#include "lm3s6965/boot_runtime.h"
+#include "lm3s6965/boot_runtime_watchdog.h"
+#endif
+#include "lm3s6965/boot_select.h"
+#include "lm3s6965/boot_sequence.h"
+#include "lm3s6965/boot_startup.h"
+#include "lm3s6965/boot_startup_gptm.h"
+#include "lm3s6965/boot_store.h"
+#include "lm3s6965/boot_target_io.h"
+#include "lm3s6965/boot_watchdog.h"
 #include "lm3s6965/system_control.h"
 
 void Boot_Terminal_Handler(void) __attribute__((noreturn));
