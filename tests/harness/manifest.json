@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "boundary": "Release host libraries; ASan/UBSan; fixture assertions active; Ethernet peers O1",
+  "new_semantic_cases": 0,
+  "merged_cases": {"ethernet:lwip": "ethernet:lwip-boot"},
+  "excluded": ["Debug configuration (not equivalent optimized code)", "hardware/physical timing/flash/reset", "live network peers", "production target fit"],
+  "blind_spots": ["Native binary abort does not establish later embedded scenarios", "Workflow's 23 methods remain nested within one CTest; no method-level JSONL", "CTest Python internal methods/subtests are not separate rollup cases", "Mocked IO, synthetic heap, RAM flash are not physical integration"],
+  "verdicts": {
+    "keep": "55 execution representatives from the56-case universe below; no assertion bodies removed",
+    "merge": "Focused4 Debug/Release into full roster: first failing criterion 4 non-redundant. Second Python/native run into first: criterion4. ethernet:lwip into ethernet:lwip-boot: criterion4, identical RAM assertions execute before additional boot cases; standalone binary still compiled. Standalone workflow into boot_pc_workflow: criterion4",
+    "drop": "Debug invocation omitted for execution cost, NOT declared semantically equivalent; Debug coverage intentionally unverified"
+  },
+  "targets": {
+    "ctest": [
+      ["boot_dependencies", "offline dependency closure", "Reject invalid closure before mutation; preserve pinned external inputs"],
+      ["boot_allocator", "linked allocator boundaries", "Exact break/error and unchanged break on rejected growth/shrink"],
+      ["boot_startup", "startup continuity policy", "Consumable entry, provenance boundary, immutable entry epoch, publication and genuine-reset invalidation"],
+      ["boot_startup_target", "signed ARM startup continuity", "20 fresh QEMU cases across A/B and Os/Og; real C initialization, original watchdog zero startup writes/feeds, ordered partial/complete service and pre-C clock rejection"],
+      ["boot_receive", "receive transaction", "Exact framing, durable state, blocked diagnostics; no forbidden writes/reset"],
+      ["boot_service", "status and confirmation", "Exact response/state; duplicate confirmation performs no metadata write"],
+      ["boot_pc_workflow", "scripted client reconciliation", "Exact workflow states/calls; no unauthorized upload/confirmation across existing23 methods"],
+      ["boot_pc_ftp", "offline FTP transport and CLI", "Mocked control/data sockets, framing/deadlines, redaction and CLI admission; no live connections"],
+      ["boot_handoff", "modeled handoff IO", "Ordered register effects and no effects on admission failure"],
+      ["boot_handoff_target", "target handoff instructions", "Target compile/disassembly instruction assertions"],
+      ["boot_watchdog", "watchdog ownership", "Exact owner/progress transitions; no feed without progress"],
+      ["boot_flash", "flash lifecycle", "Memory/status effects; failed recovery retention and blocked preservation"],
+      ["boot_diag_publication", "publication ordering", "Publication state and invalid-input preservation"],
+      ["boot_diag_publication_target", "target publication instructions", "Target-specific publication instruction checks"],
+      ["boot_diag", "diagnostic encoding", "Golden bytes, field rejection, staged context"],
+      ["boot_reset_handler", "reset persistence", "Persisted lifecycle effects and failure cut-point state"],
+      ["boot_reset", "reset policy", "Exact transitions, persistence, fail-closed deadlines"],
+      ["boot_lifecycle", "durable lifecycle", "Accounting, roles, duplicate and interruption recovery outcomes"],
+      ["boot_store", "metadata commit", "Selected records and unchanged authority on interrupted/rejected writes"],
+      ["boot_package", "artifact generation", "Signed roundtrip, malformed rejection, atomic output preservation"],
+      ["boot_layout", "Arm link layouts", "Partition/load-map bounds and rejected overflow/unsupported sections"],
+      ["boot_resources", "resource accounting", "Probe bounds and rejection of missing/malformed closure"],
+      ["boot_resource_execution", "offline emulator", "Existing execution/resource assertions; missing emulator invalid"],
+      ["boot_receive_fault", "receiver allocation fault", "Fail closed and preserve authority when allocation fails"],
+      ["boot_format", "wire/accounting", "Golden bytes, bounds, legal transitions, commit-cut outcomes"],
+      ["boot_crypto", "cryptographic vectors", "Exact SHA/signature results"],
+      ["boot_verify", "authenticated images", "Fixture acceptance and scalar/framing/stream-error results"],
+      ["boot_verify_fault", "crypto allocation fault", "Verification failure and cleanup on allocator interception"],
+      ["boot_snapshot", "snapshot consistency", "Exact snapshot state and output preservation"],
+      ["boot_launch", "verified launch", "Decision, persistence/retry and owned decision data"],
+      ["boot_launch_fault", "launch allocation fault", "Fail-closed launch on allocator failure"],
+      ["boot_select", "selection freshness", "Selected role/identity, freshness, owned-copy readback"],
+      ["boot_select_fault", "selection allocation fault", "No unauthorized selection on allocation failure"],
+      ["boot_runtime", "reset-launch composition", "Composed decisions, IO/persistence and no-intent outcomes"],
+      ["boot_runtime_fault", "runtime allocation fault", "Composed fail-closed state through verifier fault"],
+      ["boot_runtime_watchdog", "runtime-watchdog-handoff", "Progress ownership, handoff effects and stop at failure boundaries"],
+      ["boot_runtime_watchdog_fault", "fault-built watchdog composition", "Existing fault-build assertions; not every internal scenario injects allocation fault"]
+    ],
+    "ethernet": [
+      ["core", "protocol/backend", "Exact replies, file bytes, async queue and ownership/admission"],
+      ["tcp", "fake raw TCP", "Exact receive credits, buffer ownership, ACK/close/timeouts; no sockets"],
+      ["lwip", "real RAM lwIP", "Packet/checksum, exact transfer bytes, backpressure/retransmit/FIN and empty pools"],
+      ["lwip-boot", "lwIP boot binding", "Existing five classes/17 lifetimes; FIN debt, prefix credits, durable state, no premature reset"],
+      ["platform", "mock platform IO", "Clock/wrap, PHY/RX bounds, ownership/errors/teardown"],
+      ["heap", "synthetic 2KiB heap", "Exact sbrk/ENOMEM/overflow results and unchanged break on failure"]
+    ],
+    "python": [
+      ["runner_cli_test.RunnerCliTests.test_help", "side-effect-free help", "Exit0, offline text, no work marker"],
+      ["runner_cli_test.RunnerCliTests.test_list", "side-effect-free enumeration", "Exit0, exact suites, no work marker"],
+      ["runner_cli_test.RunnerCliTests.test_all_arguments_validated_before_work", "invalid CLI admission", "Exit2 and diagnostic, no tool invocation for every existing invalid input"],
+      ["stack_watermark_test.StackWatermarkTest.test_explicit_little_endian", "sentinel byte order", "Exact bytes and mismatch at zero for big endian"],
+      ["stack_watermark_test.StackWatermarkTest.test_pristine", "untouched stack", "No mismatch, zero written bytes, full untouched prefix"],
+      ["stack_watermark_test.StackWatermarkTest.test_all_changed_and_boundary", "first-byte mismatch", "Exact first address and full-size watermark"],
+      ["stack_watermark_test.StackWatermarkTest.test_changed_suffix", "contiguous suffix", "Exact SIZE-128 mismatch and 128-byte watermark"],
+      ["stack_watermark_test.StackWatermarkTest.test_unaligned_first_byte", "byte-granular mismatch", "Exact address, prefix and watermark at existing unaligned offsets"],
+      ["stack_watermark_test.StackWatermarkTest.test_isolated_mismatch", "isolated changed byte", "Exact mismatch at offset137"],
+      ["stack_watermark_test.StackWatermarkTest.test_sentinel_holes", "sentinel holes", "Earliest mismatch remains offset1023"],
+      ["stack_watermark_test.StackWatermarkTest.test_bad_length", "invalid dump extent", "ValueError for existing invalid lengths"],
+      ["stack_watermark_test.StackWatermarkTest.test_bad_bounds", "invalid bounds", "ValueError for existing invalid bounds"],
+      ["stack_watermark_test.StackWatermarkTest.test_cli_valid_and_fail_closed", "scanner CLI publication", "Exact valid watermark/limitation; errors exit2 and publish no stdout result"]
+    ]
+  },
+  "testability": {
+    "inputs": "Qualified target:name selection, fixed local fixtures, isolated fresh build and temporary test state",
+    "outputs": "JSONL exact case status; full assertion evidence in run.log and CTest JUnit files",
+    "preconditions": "Ignored artifact root, exact roster, compiler/Arm tools/QEMU available, Release sanitizer build, no source drift",
+    "known_good_boundary": "Historical corrected HOST gate on HEAD fb81ba75f4bd352abc8288ecf0ecccd16678a196 plus dirty tree; not current acceptance"
+  }
+}

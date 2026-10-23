@@ -1,11 +1,20 @@
 #include "lm3s_netif.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "ethernet.h"
 #include "ftp_tcp.h"
-#include "net_clock.h"
+#include "lwip/arch.h"
+#include "lwip/err.h"
 #include "lwip/etharp.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/netif.h"
 #include "lwip/pbuf.h"
+#include "net_clock.h"
 #include "netif/ethernet.h"
-#include <string.h>
 
 static const uint8_t mac[6] = {0x02, 0x00, 0x00, 0x69, 0x65, 0x02};
 static struct netif interface;
@@ -82,11 +91,11 @@ err_t lm3s_netif_initialize(uint32_t cpu_clock_hz, uint32_t now)
     return ERR_OK;
 }
 
-void lm3s_netif_service(uint32_t now)
+bool lm3s_netif_service(uint32_t now)
 {
     if (!initialized)
     {
-        return;
+        return false;
     }
     if (net_clock_elapsed(now, last_phy_poll, 10u))
     {
@@ -109,6 +118,10 @@ void lm3s_netif_service(uint32_t now)
             netif_set_link_up(&interface);
             netif_set_up(&interface);
         }
+        if (result != ETHERNET_OK)
+        {
+            return false; /* PHY failure is not successful link-down work. */
+        }
     }
     for (unsigned count = 0; count < 8u; ++count)
     {
@@ -125,7 +138,7 @@ void lm3s_netif_service(uint32_t now)
         }
         if (result != ETHERNET_OK)
         {
-            break;
+            return false;
         }
         if (!ready || length < ETHERNET_FRAME_HEADER_BYTES ||
             length > sizeof(rx_frame))
@@ -143,6 +156,7 @@ void lm3s_netif_service(uint32_t now)
             pbuf_free(packet); /* Successful input takes ownership. */
         }
     }
+    return true;
 }
 
 bool lm3s_netif_ready(void)

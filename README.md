@@ -1,389 +1,250 @@
-# LM3S6965 Bare-Metal Cross-Compilation Toolchain
+# LM3S6965 cross-compilation cheatsheet
 
-This repository holds a cross-compilation environment for the TI LM3S6965. The LM3S6965 is an
-ARM Cortex-M3 microcontroller. It has 256 KB of flash, 64 KB of SRAM, and a 50 MHz clock. The
-environment runs on macOS Apple Silicon. It needs no vendor IDE and no Docker.
+Build firmware for the TI EK-LM3S6965 without a vendor IDE or Docker.
+The Cortex-M3 has 256 KiB flash, 64 KiB SRAM and a nominal 50 MHz system clock.
+The host workflow targets Apple Silicon macOS with the official Arm GNU
+Toolchain, newlib, CMake, QEMU and OpenOCD. The BSP reconstructs the peripheral
+layer from the datasheet rather than depending on retired vendor tooling.
 
-The chip dates from 2007. TI no longer supports its tooling. Code Composer Studio, StellarisWare,
-and LM Flash Programmer run only on Windows. This repository replaces that stack with open-source
-tools that run natively on arm64 macOS.
+The [manual](docs/README.md) holds the contracts and detailed procedures.
+Commands below assume the repository root. They are usage instructions, not
+claims about the image installed on a board or permission for live operations.
 
-## Why this works
+## Packages and installation
 
-ARM defines the core. The vendor defines the peripherals. The `arm-none-eabi-gcc` toolchain
-targets the core, so it does not care how old the silicon is. Only the vendor layer is dead. This
-repository rebuilds that layer from the datasheet.
+| Package | Purpose |
+|---|---|
+| Official Arm GNU Toolchain 15.3.rel1 | GCC, newlib, binutils and GDB |
+| CMake 3.20+ and Make | Configure and build, including A/B presets |
+| QEMU | Offline `lm3s6965evb` model |
+| OpenOCD, libusb, libftdi, libusb-compat | ICDI debug probe access |
+| Python 3 and OpenSSL | Dependency setup, tooling and authorized signing |
+| picocom and optional pyftdi | UART adapter and ICDI SWO console |
 
----
+On macOS, install the host tools and the official toolchain cask:
 
-## Required packages
-
-The project verified all versions in this table on macOS 26.6 (arm64).
-
-| Package | Verified version | Purpose | Install |
-|---|---|---|---|
-| **Arm GNU Toolchain** | **15.3.rel1** | Cross compiler, newlib C library, binutils, and GDB | see [below](#installing-the-arm-toolchain) |
-| CMake | 4.4.2 | Builds the project | `brew install cmake` |
-| QEMU | 11.1.1 | Emulates the `lm3s6965evb` board. No hardware needed. | `brew install qemu` |
-| OpenOCD | 0.12.0 | Programs the flash and serves GDB over the ICDI probe | `brew install openocd` |
-| libusb | 1.0.30 | Gives USB access to the FTDI debug probe | `brew install libusb` |
-| libftdi | 1.5_2 | Drives the FTDI FT2232 on the Stellaris ICDI | `brew install libftdi` |
-| libusb-compat | 0.1.9 | Provides the legacy libusb 0.1 API. Some OpenOCD paths need it. | `brew install libusb-compat` |
-| picocom | 2024-07 | Reads the UART0 serial console | `brew install picocom` |
-| pyftdi | 0.57.2 | Python FTDI driver. Reads the ICDI SWO channel over libusb. | `pip install pyftdi` |
-| arm-none-eabi-gdb | 17.2 | Standalone debugger. The Arm toolchain also bundles it. | `brew install arm-none-eabi-gdb` |
-
-Install all packages except the Arm toolchain with one command:
-
-```bash
-brew install cmake qemu openocd libusb libftdi libusb-compat picocom arm-none-eabi-gdb
-```
-
-> Homebrew ships OpenOCD under the formula name **`open-ocd`**. The
-> `brew install openocd` alias still resolves. The binary is still `openocd`.
-
-Install `pyftdi` into a virtual environment. Python packages do not belong to Homebrew:
-
-```bash
+```sh
+brew install cmake qemu open-ocd libusb libftdi libusb-compat picocom openssl
+brew install --cask gcc-arm-embedded
 python3 -m venv .venv
 .venv/bin/pip install pyftdi
 ```
 
-`scripts/icdi-console.sh` finds this environment automatically. Set `PYFTDI_PYTHON` to point at a
-different interpreter.
+Do **not** use the Homebrew `arm-none-eabi-gcc` formula: it lacks newlib.
+The [toolchain chapter](docs/toolchain.md) gives the no-sudo tarball alternative,
+search paths, exact dependency pins and offline archive setup. For a different
+installed compiler, configure with
+`-DLM3S6965_TOOLCHAIN_BIN_HINTS=/absolute/path/to/toolchain/bin`.
 
-`scripts/ethernet/link/ethernet-link-test.sh` also needs `python3` on `PATH`.
-Its evaluator uses only the Python standard library.
-Live capture also needs OpenOCD and the capture interpreter with `pyftdi`.
-Offline `--capture-file` evaluation needs neither OpenOCD nor `pyftdi`.
+Populate pinned dependencies explicitly before configuring:
 
-### Installing the Arm toolchain
-
-> ### ⚠️ Do not use the Homebrew formula `arm-none-eabi-gcc`
->
-> The Homebrew **formula** `arm-none-eabi-gcc` builds GCC and binutils. It ships
-> **no C library at all**. The sysroot is empty and there is no newlib. Its own
-> `<stdint.h>` starts with `#include_next <stdint.h>`. That directive expects a
-> libc header that does not exist. Every build then fails with:
->
-> ```
-> fatal error: stdint.h: No such file or directory
->     11 | # include_next <stdint.h>
-> ```
->
-> Homebrew has **no** `arm-none-eabi-newlib` formula. Use only the **official
-> Arm GNU Toolchain**, which bundles newlib.
->
-> `cmake/toolchain-lm3s6965.cmake` searches for the official toolchain first. If it
-> finds a toolchain with no libc, it stops with an actionable message.
-
-**Option A: official cask.** This needs a `sudo` password one time.
-
-```bash
-brew install --cask gcc-arm-embedded
+```sh
+python3 scripts/setup-dependencies.py
+python3 scripts/setup-dependencies.py --check
 ```
 
-**Option B: tarball.** This needs no `sudo`. This repository uses this path.
+Setup can access the network. Configure and build never fetch dependencies.
+Use only separately approved installation and dependency access.
 
-```bash
-TC_DIR="$HOME/.toolchains"
-ARCHIVE="arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi.tar.xz"
-URL="https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/15.3.rel1/$ARCHIVE"
+## Bare-metal and FreeRTOS build
 
-mkdir -p "$TC_DIR" && cd "$TC_DIR"
-curl -sL --fail -o "$ARCHIVE" "$URL"
-tar -xf "$ARCHIVE" && rm -f "$ARCHIVE"
+```sh
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-lm3s6965.cmake
+cmake --build build --target lm3s6965_firmware lm3s6965_freertos_firmware
 ```
 
-The toolchain installs to `$HOME/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi/`.
-The extracted directory is about 1.0 GB. CMake finds it automatically. To use a different
-location, pass `-DLM3S6965_TOOLCHAIN_BIN_HINTS=/path/to/toolchain/bin`.
-
----
-
-## Build
-
-The separate `lm3s6965_ethernet_ftp` target is opt-in and defaults OFF.
-See [FTP build and evidence](docs/ftp.md) for pinned lwIP initialization and
-`-DLM3S6965_BUILD_ETHERNET_FTP=ON` instructions. Physical IP/FTP acceptance remains pending.
-The [reusable FTP library guide](docs/ftp-library.md) covers `src/ftp_core.c`,
-`src/ftp_tcp.c`, `src/ram_file.c`, and public `include/lm3s6965/` APIs.
-Reuse the `lm3s6965_ftp_core` and `lm3s6965_ram_file` archives, or create a TCP adapter
-with `lm3s6965_add_ftp_tcp_library(target lwip_target)` and caller-exported lwIP configuration.
-
-The FreeRTOS kernel is a git submodule. Fetch it before the first build:
-
-```bash
-git submodule update --init --recursive
-```
-
-Then configure and build:
-
-```bash
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-lm3s6965.cmake
-cmake --build build
-```
-
-Configure prints the resolved toolchain and the libc path. The output shows a misconfigured
-environment at once:
-
-```
--- LM3S6965 toolchain: .../arm-none-eabi-gcc
--- LM3S6965 libc     : .../thumb/v7-m/nofp/libc.a
-```
-
-The build writes these files to `build/`:
-
-| File | Purpose |
+| Application | ELF path under `build/` |
 |---|---|
-| `examples/baremetal/lm3s6965_firmware` | ELF. GDB and QEMU use this file. |
-| `examples/baremetal/lm3s6965_firmware.bin` | Raw binary for flashing |
-| `examples/baremetal/lm3s6965_firmware.hex` | Intel HEX for flashing |
-| `examples/baremetal/lm3s6965_firmware.map` | Linker map |
-| `examples/freertos/lm3s6965_freertos_firmware` | FreeRTOS ELF. GDB and QEMU use this file. |
-| `examples/freertos/lm3s6965_freertos_firmware.bin` | FreeRTOS raw binary for flashing |
-| `examples/freertos/lm3s6965_freertos_firmware.hex` | FreeRTOS Intel HEX for flashing |
-| `examples/freertos/lm3s6965_freertos_firmware.map` | FreeRTOS linker map |
-| `examples/ethernet-link/lm3s6965_ethernet_link` | PHY-only diagnostic ELF |
-| `examples/ethernet-raw/lm3s6965_ethernet_raw` | RAW frame diagnostic ELF |
+| Bare-metal OLED, switches, LED and console | `examples/baremetal/lm3s6965_firmware` |
+| FreeRTOS application | `examples/freertos/lm3s6965_freertos_firmware` |
 
-Both Ethernet targets also emit `.bin`, `.hex`, and `.map` files.
-They are distinct diagnostics, not IP or FTP applications.
+Each target also emits `.bin`, `.hex` and `.map` siblings. GDB and QEMU use the
+ELF without a suffix. See [applications and emulation](docs/applications.md)
+for FreeRTOS configuration and QEMU commands.
 
-The bare-metal firmware now initializes the OLED, clears it, and draws the 128 x 72 LUMON image.
-`scripts/oled-brightness.sh <value>` sets contrast at runtime.
+### Flash one application
 
-## Key build flags
+**Programming erases flash and overwrites installed firmware without a backup.**
+Ordinary application images are not A/B slot packages. Do not use this path to
+update a provisioned A/B system unless deliberately replacing its boot setup.
+Obtain separate approval for probe access, halt, programming and reset.
 
-| Flag | Reason |
-|---|---|
-| `-mcpu=cortex-m3` | ARMv7-M. This flag also sets Thumb-2 and `-mthumb`. |
-| `-mfloat-abi=soft` | The Cortex-M3 has **no FPU**. Hard-float would emit undefined instructions. |
-| `-ffunction-sections -fdata-sections` + `-Wl,--gc-sections` | Drops unused code to save flash |
-| `-nostartfiles` | Suppresses the newlib `crt0`, which would inject a conflicting `.init` section |
-| `--specs=nano.specs` | Newlib-nano. The `printf` function becomes much smaller. |
-| `--specs=nosys.specs` | Provides default syscall stubs. The stubs in this repository override them. |
-| `-Wall -Wextra -Werror` | Shows defects at build time, not on hardware |
-
-## Flash and debug on real hardware
-
-> **Status: verified on hardware.** The firmware runs on a real EK-LM3S6965. The project read
-> every clock and UART register back from silicon. All values matched.
-
-The on-board probe is a **Luminary Micro ICDI**, which contains an FTDI FT2232. Its USB identity
-is **not** the identity in the config that OpenOCD ships:
-
-| Field | OpenOCD `ftdi/luminary-icdi.cfg` | This board |
-|---|---|---|
-| Vendor ID | `0x0403` | `0x0403` |
-| **Product ID** | `0xbcda` | **`0xbcd9`** |
-| **Product string** | `"Luminary Micro ICDI Board"` | **`"Stellaris Evaluation Board"`** |
-
-The shipped file targets the LM3S9B9x kit. `openocd/interface/luminary-icdi-ek-lm3s6965.cfg` in
-this repository carries the correct identity. `openocd/board/ek-lm3s6965.cfg` adds the generic
-Stellaris target.
-
-### Check the cable first
-
-```bash
+```sh
 scripts/check-connection.sh
-```
-
-This script reports the detected probe, its VID and PID, and any serial nodes. It reads `ioreg`.
-It does not read `system_profiler`, which does not report this device on recent macOS versions.
-
-### Verify the connection (writes nothing)
-
-```bash
 scripts/probe.sh
+scripts/flash.sh build/examples/baremetal/lm3s6965_firmware
 ```
 
-This script halts the core. It prints the device identity (`DID0` and `DID1`), the vector table,
-and the flash geometry. It then resumes the core. Run it before you flash.
+`check-connection.sh` checks host USB enumeration, not working probe access or
+flash programming, regardless of its optimistic verdict.
+`probe.sh` resets and halts the core, reads identity/vectors/flash geometry, then
+resumes it without flash programming. It is not passive observation.
+`flash.sh` programs, verifies and resets through the repository's board config
+for the `0403:bcd9` FTDI ICDI. To select FreeRTOS instead:
 
-### Flash
-
-```bash
-scripts/flash.sh                      # defaults to build/examples/baremetal/lm3s6965_firmware
-scripts/flash.sh path/to/other.elf    # or name the file
+```sh
+scripts/flash.sh build/examples/freertos/lm3s6965_freertos_firmware
 ```
 
-The script programs, verifies, and resets the target:
-`openocd -f openocd/board/ek-lm3s6965.cfg -c "program <elf> verify reset exit"`.
+For console capture and reset sequencing, use [board bring-up](docs/bring-up.md).
+The ICDI console is SWO over raw USB, not a macOS serial device:
 
-### Flash the FreeRTOS image
+```sh
+scripts/icdi-console.sh
+```
 
-1. Build the image.
+Use `scripts/console.sh` for a separate UART0 serial adapter. The banner prints
+once after reset, so follow the manual's reader-before-reset procedure.
 
-   ```bash
-   cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-lm3s6965.cmake
-   cmake --build build
-   ```
+### Restart the installed firmware (no programming)
 
-2. Check the probe and the cable.
+With separate authorization for a live reset, run with **no arguments**:
 
-   ```bash
-   scripts/check-connection.sh
-   ```
+```sh
+scripts/board_software_reset.sh
+```
 
-3. Halt the core and read the device. This step writes nothing.
+This requests SYSRESETREQ and `reset run` through the board's OpenOCD config to
+reset/restart the current firmware; it does not program flash. OpenOCD target
+reset hooks can govern the actual reset sequence. `-h` or `--help` alone prints
+help without accessing hardware and exits successfully. Unsupported arguments,
+including `--dry-run` and extra arguments, are rejected with exit status 2 before
+hardware access.
+Start any console reader before resetting; use the coordinated capture procedures
+in [board bring-up](docs/bring-up.md#console-paths-and-capture) for SWO capture.
 
-   ```bash
-   scripts/probe.sh
-   ```
+## A/B boot build and flash
 
-4. Flash the FreeRTOS image. Run the command from the repository root.
+A/B has three separate artifacts: a dispatch bootloader with a selected public
+root, signed slot applications, and authenticated initial metadata. Building or
+flashing only the bootloader does **not** bootstrap a blank board.
+See [update and boot images](docs/boot-reset-image.md) and
+[signed packages and factory metadata](docs/boot-package.md).
 
-   ```bash
-   scripts/flash.sh build/examples/freertos/lm3s6965_freertos_firmware
-   ```
+### Configure an identity and build
 
-   The script programs, verifies, and resets the target. If you work from another directory,
-   use an absolute path, because the script calls `realpath`.
+**Existing identity first:** retain the approved external key pair; do not run
+key setup for a rebuild or an existing board. Restore or deliberately configure
+a working ignored root `.env` pointing to that pair. Both build wrappers require
+`.env`; `.env.bak` alone is not consumed, even with a public-key argument.
+Preserve backups and do not overwrite a working config. Store paths, not private
+key bytes. The package wrapper requires exactly:
 
-5. Capture the console. The banner prints one time after reset, so start the reader first.
+- `LM3S6965_BOOT_PUBLIC_KEY_FILE`: raw 65-byte uncompressed P-256 public file.
+- `LM3S6965_BOOT_PRIVATE_KEY_FILE`: absolute external private-key path, not bytes.
+- `LM3S6965_BOOT_RELEASE_A` and `LM3S6965_BOOT_RELEASE_B`: decimal uint32 releases.
 
-   ```bash
-   scripts/icdi-console.sh
-   ```
+Values are literal, never shell-sourced or inherited from the environment.
+Review releases before signing. Defaults 1/2 are not uniqueness or anti-downgrade
+policy. See [identity setup and wrapper contract](docs/boot-package.md#local-identity-and-build-wrappers)
+for parser limits, failure recovery and direct unsigned CMake commands.
 
-   The SWO path needs no extra hardware. Keep the probe attached for the whole capture window.
-   For a USB serial adapter on the UART0 header, use `scripts/console.sh` instead.
+After reviewing the existing identity and releases, build with:
 
-**Notes:**
+```sh
+scripts/build_ab_boot_demo
+scripts/build_boot_dispatch
+```
 
-- The FreeRTOS image is 11.7 KB of text. It fits the 256 KB flash.
-- Flashing overwrites the current firmware. There is no backup.
-- To restore the bare-metal image, run `scripts/flash.sh` with no argument.
-- The project verified the FreeRTOS image in QEMU only. The hardware path remains unverified.
+**Alternative: new, separately authorized local identity only**, with no existing
+`.env` or key pair at the selected location:
+
+```sh
+python3 scripts/setup-boot-demo-keys.py --init-env
+```
+
+Then review `.env` before using the build commands above. Setup refuses existing
+`.env` and key files; it creates external keys with private file mode 0600 and
+parent mode 0700. Do not regenerate a lost key: recover its backup or plan an
+explicit identity migration. A new public root requires a matching bootloader
+on the device. FTP cannot rotate that root.
+
+The package wrapper builds only FTP A/B applications, forces diagnostics OFF,
+and signs their exact binaries using the existing packager. It publishes
+`slot-a.pkg` and `slot-b.pkg` in a new
+`build/ab-demo-packages/release-<A>-<B>/`, refusing an existing directory.
+If it already exists, leave it intact: review and approve new release values in
+`.env`, or explicitly preserve the old artifacts at a separate archival path
+before rebuilding the same pair. Do not automatically overwrite or delete them;
+reusing release numbers does not establish anti-downgrade protection.
+The dispatch wrapper separately builds `build/src/lm3s6965_boot_dispatch`.
+Neither wrapper flashes a device. Existing build artifacts and unrelated cache
+settings are retained. Resolve incompatible generator/toolchain caches manually.
+
+**Programming gate:** an A/B build produced unresolved linker warnings about
+variable-size enums mixed with 32-bit enums (possible cross-object ABI mismatch).
+Successful linking and signing do not validate ABI compatibility. Stop before
+programming these new images until the warnings have been reviewed; they do not
+by themselves prove corrupted layout or require rebuilding the toolchain.
+
+### Bootstrap versus an existing confirmed application
+
+**Blank-board/bootstrap:** first plan the matching bootloader, authenticated
+slot payloads/manifests and both metadata pages using the manual. There is no
+single blank-board provisioning shortcut here. The following command writes
+only the built bootloader and erases its programmed flash region. It does not
+install applications or initialize metadata, and may make an existing system
+unbootable if its root no longer matches:
+
+```sh
+scripts/flash.sh build/src/lm3s6965_boot_dispatch
+```
+
+`scripts/ab-boot-provision-recovery.sh` is a separately authorized one-slot
+debug programmer, **not** a complete bootstrap or automatic FTP fallback.
+It preserves bootloader, public root and metadata.
+
+**Existing confirmed production FTP app:** only after it serves `boot-status`
+and reports a permitted update slot, use the signed pair on an approved isolated
+bench. Replace the example directory with the exact published release path:
+
+```sh
+scripts/ab-boot-firmwareflash-ftp.sh status
+scripts/ab-boot-firmwareflash-ftp.sh download build/ab-demo-packages/release-1-2
+```
+
+The client defaults to `192.168.7.2:21`. It uploads only the permitted slot,
+prompts for manual reset, checks the running report and healthy trial, then
+requests and resolves durable confirmation. At that prompt, a separately
+authorized `scripts/board_software_reset.sh` may be run in another terminal;
+the FTP client does not invoke it automatically. This describes the workflow,
+not evidence of a successful trial. Firmware reception erases the
+inactive destination. Transfer completion alone is not update success.
+Do not retry firmware after an ambiguous transfer. Inspect read-only status.
+LED-only fixtures cannot serve this workflow. See the
+[PC workflow](docs/boot-reset-image.md#pc-demo-and-transport) for exact boundaries.
 
 ## Source layout
 
-```
-third_party/FreeRTOS-Kernel/     FreeRTOS kernel git submodule, pinned to V11.3.1
-cmake/toolchain-lm3s6965.cmake   CMake cross-compilation toolchain file
-linker/lm3s6965.ld               Memory layout: 256K flash @ 0x0, 64K SRAM @ 0x20000000
-include/lm3s6965/                BSP public headers
-src/                             BSP sources and src/CMakeLists.txt
-src/startup.c                    Vector table, reset handler, .data/.bss init
-src/uart.c                       Polled UART0 driver
-src/gpio.c                       GPIO alternate-function, digital enable, and input configuration
-src/led.c                        User LED driver
-src/switch.c                     Navigation and select switch driver
-src/trace.c                      ITM and TPIU setup for the SWO console
-src/system_control.c             SYSCTL clock gating and PLL configuration
-src/syscalls.c                   newlib syscall stubs (_write routes stdout to UART0 and the ITM)
-freertos/                        BSP FreeRTOS support (CMakeLists.txt, FreeRTOSConfig.h, hooks.c)
-freertos/CMakeLists.txt          FreeRTOS target build script
-freertos/FreeRTOSConfig.h        FreeRTOS configuration and handler mapping
-freertos/hooks.c                 FreeRTOS hook and assertion callbacks
-examples/baremetal/              bare-metal example (main.c, CMakeLists.txt)
-examples/freertos/               FreeRTOS example (main.c, CMakeLists.txt)
-examples/ethernet-link/          PHY-only link diagnostic
-examples/ethernet-raw/           Bounded RAW request/reply diagnostic
-examples/ethernet-ftp/          Opt-in FTP example and caller-owned lwIP port
-scripts/ethernet/               Ethernet tooling, fixtures, and offline suite runner
-openocd/board/ek-lm3s6965.cfg    OpenOCD board config (Stellaris target + self-contained search path)
-openocd/interface/               ICDI interface config for this board's 0403:bcd9 probe
-scripts/check-connection.sh      Cable and probe detection
-scripts/probe.sh                 Read-only connectivity check
-scripts/flash.sh                 Program, verify, reset
-scripts/console.sh               Read the UART0 console through a USB serial adapter
-scripts/icdi-console.sh          Capture the SWO startup marker through the ICDI
-scripts/ethernet/test.sh         Default-safe consolidated offline suites
-scripts/ethernet/link/           Link runners and shared ICDI capture fixtures
-scripts/ethernet/raw/host/       Real native Mac helper executable sources
-scripts/ethernet/raw/tests/      Offline RAW fixtures
-```
+| Path | Responsibility |
+|---|---|
+| `include/lm3s6965/`, `src/` | BSP, boot policy, storage, FTP libraries and startup |
+| `linker/`, `config/`, `cmake/` | Memory ownership, crypto configuration and build rules |
+| `examples/`, `freertos/` | Bare-metal, RTOS, Ethernet and A/B consumers |
+| `third_party/` | Explicitly populated pinned dependencies |
+| `scripts/`, `tools/`, `tests/` | Operational wrappers, offline PC tooling and fixtures |
 
-## Ethernet diagnostics
-
-See [Ethernet tooling and suites](scripts/ethernet/README.md) for the current layout.
-Run these commands from the repository root:
+Start validation with [tools and testing](docs/tools-testing.md) or the
+[test launchpad](tests/README.md). Ethernet procedures live in
+[scripts/ethernet-diagnostics.md](scripts/ethernet-diagnostics.md).
+The consolidated offline suite lists its coverage without running it:
 
 ```sh
-./scripts/ethernet/test.sh
-./scripts/ethernet/test.sh all
-./scripts/ethernet/test.sh ftp file
-./scripts/ethernet/test.sh consumer
-./scripts/ethernet/test.sh --help
 ./scripts/ethernet/test.sh --list
 ```
 
-Default and `all` run offline suites only. Consumer coverage is Arm compile/link only.
-Latest independent cleanup checks passed ten native ASan/UBSan executables, three CLI tests, and 41 link Python tests.
-No new firmware build or hardware evidence was added by cleanup.
-The separate raw launcher defaults to **LIVE** traffic. Link live capture resets the board.
-Neither live path is part of the consolidated runner. Both require fresh authorization.
+## Limitations
 
-The board currently runs `lm3s6965_ethernet_raw`, not the link diagnostic.
-RAW initialization and negotiated readiness were observed.
-Earlier elevated helper attempts failed before the frame experiment.
-The corrected elevated retry and raw-frame exchange remain unverified.
-IP, FTP, and full-MTU operation remain untested.
+- QEMU and native models do not prove physical timing, flash power-loss behavior,
+  live IP/FTP, watchdog margin or whole-system acceptance.
+- Clock register readback is not measured frequency or end-to-end UART evidence.
+  Oscillator startup uses a fixed conservative delay.
+- UART0, GPIO, LED, switches, OLED, SysTick and trace are supported, not a full
+  vendor peripheral SDK. FreeRTOS uses a separate 32 KiB heap.
+- RAW defaults to live traffic and link capture resets the board. Neither live
+  path belongs to the consolidated offline runner.
+- Documentation bytes participate in boot source identity. This cleanup does
+  not renew fingerprints, historical test evidence or installed-image claims.
 
-Build the native macOS helper as a regular user without device access:
-
-```bash
-./scripts/ethernet/raw/ethernet-raw-test.sh --build-only
-./scripts/ethernet/raw/ethernet-raw-test.sh --self-test
-```
-
-BPF needs narrow read/write access. The observed root-owned `0600` devices
-block nonroot access. No automatic sudo or permission changes occur.
-After approval, explicitly run the already-built helper:
-
-```bash
-sudo ./build/host/ethernet_raw_test en7
-```
-
-The helper drops privileges but retains its open BPF packet capability.
-`RAW FRAME PASS` requires three exact incoming 60-byte replies.
-See [Ethernet evidence](docs/ethernet.md#raw-frame-experiment) for the
-frame contract, exact output, bounds, and optional two-terminal capture.
-
-### PHY-only link check
-
-Obtain fresh authorization before this live capture.
-Only with `lm3s6965_ethernet_link` flashed, run from the repository root.
-Do not use this wrapper with RAW. It resets and rejects the RAW identity:
-
-```bash
-./scripts/ethernet/link/ethernet-link-test.sh --seconds 10 --baud 1000000
-```
-
-This command resets the target. It does not flash, change host network
-settings, or transmit frames. `CONSOLE CAPTURE OK` means startup-marker
-reception only. `ETHERNET LINK PASS` means the observed samples meet the
-link criteria. It does not accept frame transfer, IP, FTP, or cable cycling.
-See [Ethernet reference and evidence](docs/ethernet.md) for criteria,
-output, prerequisites, and offline saved-text evaluation.
-
-## Known limitations
-
-- **The project verified the UART baud rate by register read-back, not by observed characters.**
-  On the attached EK-LM3S6965, `RCC` reads back `0x01CE1380` and `UART0_IBRD`/`FBRD` read 27/8.
-  The relation `50 000 000 / (16 × 115200) = 27.1267` therefore holds on the real part. QEMU does
-  not time UART output against the baud rate. macOS has no reachable serial console, so no test
-  observed UART output end to end.
-- **Main-oscillator startup uses a fixed delay, not a status bit.** The code follows the LM3S6965
-  datasheet sequence. The delay constant (524288 iterations) is a conservative bound, not a
-  measured value.
-- **The project verified flashing on hardware.** It programmed the firmware to an EK-LM3S6965
-  with `program … verify reset`. The vector table reads `0x20010000 0x000000f1` and `RCC` reads
-  `0x01CE1380`. This step **overwrote the factory firmware with no backup**.
-- **The ICDI console is SWO, not a serial port.** macOS cannot bind the ICDI virtual COM port,
-  because the FTDI VCP extension whitelist excludes `0x0403:0xbcd9`. The console uses the
-  Cortex-M3 trace pin instead. The on-board CPLD taps that pin and forwards it to the ICDI's
-  second channel, which is readable over raw libusb. The probe must use SWD, because in JTAG mode
-  the shared pin carries JTAG data. No serial adapter is needed.
-- **The project implements only UART0 among the serial ports.** GPIO, the user LED, the switches,
-  SysTick, and the ITM trace block work. The project does not implement UART1, UART2, SSI, I2C,
-  PWM, QEI, ADC, or the general-purpose timers. Ethernet has a BSP driver
-  and separate link/RAW diagnostics. An opt-in bare-metal lwIP FTP example is tested offline.
-  Physical MCU IP and FTP remain unverified.
-- **QEMU runs the console slowly.** The firmware paces each ITM write on the stimulus port ready
-  bit. QEMU does not model the ITM, so each byte spins the bounded wait loop. A full banner takes
-  about 45 seconds. Use a capture window of 45 seconds or more.
-- **The FreeRTOS target uses a 32 KB heap.** heap_4 owns one 32 KB block in `.bss`. Task stacks
-  come from that block. The bare-metal target does not use this heap.
+Read [limitations and proof boundaries](docs/limitations.md) before interpreting
+an old result as current acceptance.

@@ -1,0 +1,389 @@
+{
+  "schema": "physical-root-proposal-v1",
+  "state": "authored-not-run",
+  "cases": [
+    {
+      "name": "safe-args",
+      "intent": "Reject structural invalid inputs before any leaf MMIO and preserve unpublished outputs.",
+      "class": "pre-MMIO structural rejection",
+      "asserts": [
+        "NULL/misaligned RESC read outputs and flash-register read outputs return -1, sentinel uint32 unchanged; leaf calls=0.",
+        "NULL/misaligned flash object, zero polls and Hz representatives 0/999999/8000001/51000000 return BOOT_FLASH_ARGUMENT; flash bytes unchanged; calls=0.",
+        "NULL/misaligned flash/images inputs return BOOT_FLASH_ARGUMENT; images bytes unchanged and calls=0."
+      ]
+    },
+    {
+      "name": "physical-map",
+      "intent": "Route exact-part register and byte accesses only through approved bounded model leaves.",
+      "class": "physical leaf mapping and whitelist",
+      "asserts": [
+        "RESC address=0x400fe05c; two fresh reads yield 0x80000012 then 0xc000001a; write value=0xc0000018 with exact R,R,W trace.",
+        "FMA/FMD/FMC/FCRIS/FCMISC/USECRL constants equal 0x400fd000/004/008/00c/014 and 0x400fe140; all six reads hit exact address/value; only FMA/FMD/FMC/FCMISC writes succeed.",
+        "FCRIS/USECRL/unlisted writes and unlisted reads reject without leaf access or status/timing mutation.",
+        "Byte reader returns first/last mapped byte and exact four-byte interior sequence with ascending address trace; below/end/wrap/cross-end/SIZE_MAX/zero/NULL reject without leaf accesses."
+      ]
+    },
+    {
+      "name": "init-clock",
+      "intent": "Publish only truthful integral MHz with matching low-byte USECRL and retain existing modification timing policy.",
+      "class": "timing admission and unchanged policy reuse",
+      "asserts": [
+        "USECRL=7 with 9MHz returns CLOCK, flash object byte-identical, exactly one USECRL read and no writes.",
+        "Fresh USECRL=0xabc00007 with 8MHz,polls3 returns OK, descriptor context NULL, mhz8/polls3/unblocked/blocked_result OK, exactly one read and no timing mutation.",
+        "After timing changes to8, real boot_flash_program at metadata0 returns CLOCK with exactly FMC then USECRL reads and no command/status/data writes."
+      ]
+    },
+    {
+      "name": "images-publication",
+      "intent": "Read exactly both fixed manifests and publish atomically only after both reads succeed.",
+      "class": "two-read acquisition with staged failure",
+      "asserts": [
+        "Real boot_flash_read drives double callback tuples [(0x23c00,160),(0x3f400,160)]; output sizes=[160,160], full wires=[0x31*160,0x72*160].",
+        "Separate fresh first/second-read IO failures after dirtying the temporary yield BOOT_FLASH_IO, callback counts1/2, entire caller output unchanged; no retry."
+      ]
+    },
+    {
+      "name": "bridge-bind",
+      "intent": "Translate bounded payload reads faithfully and assemble persistent descriptors without altering caller continuity fields.",
+      "class": "reader ABI and offline composition",
+      "asserts": [
+        "Requests (0x23b00,256),(0x3f3ff,1) return256/1 with exact original context and callback tuples; read IO failure returns0.",
+        "Metadata/manifest/gap/wrapped/cross-end/zero/257-byte/NULL/misaligned-context requests return0 with no downstream reads.",
+        "Five NULL and five misaligned bind positions return-1 preserving parameters/register/store bytes and zero leaf calls.",
+        "Valid bind sets exact pointers to caller-owned registers/store/images, reader=boot_target_verify_read, context=original flash; all other parameter bytes preserved including nonNULL continuity/diagnostic/producer/delay; descriptors exactly match production factories; no MMIO."
+      ]
+    },
+    {
+      "name": "root-reject",
+      "intent": "Fail production configuration closed for absent or invalid PUBLIC roots and remove stale generated trust.",
+      "class": "PUBLIC-root rejection admission script",
+      "asserts": [
+        "Fresh out-of-tree configurations for unspecified key/missing file/64-byte SEC1/offcurve(0,0)/repository demo public key each exit nonzero with exact branch-specific diagnostic substring.",
+        "Each previously seeded generated root header is absent after rejection; no defaults or key generation."
+      ]
+    },
+    {
+      "name": "root-rebuild",
+      "intent": "Select explicit alternate PUBLIC bytes and rebuild concrete verifier object automatically after a PUBLIC-file change.",
+      "class": "valid root selection and configure dependency transition",
+      "asserts": [
+        "RFC6979 A.2.5 Q configuration prints SHA256(RFC), generated C array exactly RFC65 bytes.",
+        "After initial build, replace only test PUBLIC file with SEC2 P256 basepoint literal; cmake --build alone prints SHA256(SEC2), generated header becomes exact SEC2 bytes.",
+        "Actual boot_verify.c.o SHA256 and mtime both change; rebuilt actual production verifier still rejects existing demo-signed fixture; no explicit reconfigure or sleep/poll."
+      ]
+    },
+    {
+      "name": "verifier-roots",
+      "intent": "Actual production verifier never accepts repository demo signatures or falls back when generated root is absent.",
+      "class": "production trust isolation",
+      "asserts": [
+        "RFC production host verifier returns BOOT_VERIFY_ERROR_SIGNATURE for unchanged fixture_manifest[0] and signature-byte96 corruption, keeping full manifest output sentinel unchanged.",
+        "Direct compilation with production definition but no generated-header include directory fails mentioning lm3s6965_boot_production_public_key.h, with no output object.",
+        "Default actual signed success and invalid-signature behavior are asserted by the two unchanged shared regression intents, not duplicated here."
+      ]
+    },
+    {
+      "name": "arm-closure",
+      "intent": "Compile and statically close the actual adapter with original policies and explicit production root using official Arm15.3.",
+      "class": "ARM actual-source synthetic unit closure",
+      "asserts": [
+        "Absolute official 15.3 compiler/tool paths; actual root CMake target lm3s6965_boot_target_io and dependencies build for CortexM3/Thumb/soft/Os/enum32; no transformed adapter on ARM.",
+        "Final synthetic unit ELF has no undefined symbols; each of six adapter APIs plus sequence/flash/store/producer/runtime/reset/select/verify/mbedtls_ecdsa_verify has one T/t definition in synthetic FLASH [0,0x100000).",
+        "Actual adapter object has no nonempty writable allocated section and no non-rodata static object; no extra mutable adapter state.",
+        "Exactly one lm3s6965_boot_public_key object, size65, in actual read-only CODE .text section below0x100000; production include dependencies contain generated root and exclude demo header; ELF contains selected RFC bytes but no demo bytes/symbol.",
+        "Full static disassembly/map/ELF retained; synthetic FLASH1MiB/RAM64KiB is NOT final boot layout/32KiB fit/retained lifetime/target execution."
+      ]
+    },
+    {
+      "name": "shared-signed-run",
+      "intent": "Preserve the accepted real signed RUN/original-watchdog/EMPTY behavior across the changed verifier dependency.",
+      "class": "unchanged accepted shared success regression",
+      "asserts": [
+        "Execute existing sequence_host signed-run without modifying its assertion intent: exact outer/nested status-valid tuple, selected A/MSP/reset vector/authority equality, one original watchdog configure, exact feed history, EMPTY continuity and terminal no-IO duplicate.",
+        "Accepted verifier source baseline bc63e3c02f91eeb32858ba85313ab7ae7255d23ee318b58010e2a2a64d54abca differs from scoped current verifier; this is why regression is included."
+      ]
+    },
+    {
+      "name": "shared-signature-reject",
+      "intent": "Preserve real signature rejection/quarantine and unchanged decision through the changed verifier dependency.",
+      "class": "unchanged accepted shared authentication regression",
+      "asserts": [
+        "Execute existing sequence_host signature-reject unchanged: verify_result[A]=ERROR_SIGNATURE/evidence_mask1, FAILED/RUNTIME, zero payload reads/feeds, original configure once, epoch1/verification1/blocked/no evidence, unchanged output and terminal no-IO duplicate."
+      ]
+    }
+  ],
+  "change_manifest": {
+    "scope": [
+      "include/lm3s6965/boot_target_io.h",
+      "src/boot_target_io.c",
+      "cmake/boot_trust_root.cmake",
+      "scripts/validate-boot-public-key.py",
+      "CMakeLists.txt: trust-root include",
+      "src/CMakeLists.txt: physical archive registration",
+      "cmake/boot_crypto.cmake: trust-root usage propagation",
+      "src/boot_verify.c: build-selected root only",
+      "include/lm3s6965/boot_verify.h: root contract"
+    ],
+    "baseline": "accepted previous shared gate; not HEAD alone (shared source/header are untracked in dirty workspace)",
+    "risk_surface": [
+      "physical address/permission/bounds mapping",
+      "early argument rejection and staged publication",
+      "reader ABI and descriptor/context ownership",
+      "production root admission/rebuild/isolation",
+      "actual ARM static dependency closure"
+    ],
+    "preserved_invariants": [
+      "sole existing flash/runtime/reset/select/verifier policy",
+      "no physical startup/default executable/clock configuration",
+      "boot-local adapter workspace, retained continuity ABI unchanged",
+      "no hardware actuation/private keys/network",
+      "shared RUN remains EMPTY, not dispatch-ready"
+    ],
+    "scoped_source_sha256": {
+      "include/lm3s6965/boot_target_io.h": "716ee162611de42300897c23a4c77b2d44dcba81f10b260546f3ecc42b2c10e7",
+      "src/boot_target_io.c": "3c6a695bb1955916309151914566ffcbe17be53d9078b12b73bc98bbb1e7deca",
+      "cmake/boot_trust_root.cmake": "95c9a06adcb0f3f6a1e604dda1fd6d1f82a0b6a8694dd670927021380843cc11",
+      "scripts/validate-boot-public-key.py": "c89a8e9e5b37f432bb3f191cf5effc8e8e22f666df5196affd721635f6a45d20",
+      "CMakeLists.txt": "42e510b42d431674e8fc0cd61a15ab10308da722d7dfa5102841e0b2b1b2de49",
+      "src/CMakeLists.txt": "a668c45c475a324d3b7d8d87a6e37242a74a425f7e262975526de7fe7fc89392",
+      "cmake/boot_crypto.cmake": "040a11983adb7bb15c3fab8329f95c3618b68e944d24d61f46b368b85b81f001",
+      "src/boot_verify.c": "b37cb2ec72d79c4aa6d6187220d714a102fcc8002d7c2dd900049b84c66dec60",
+      "include/lm3s6965/boot_verify.h": "4bfcb6fab5ad1c84973f66c4d5f5ead6429d4ef1732c8994e9124a8ee1cf0e12"
+    }
+  },
+  "known_good_boundary": {
+    "evidence": ".dev-vault/tests/dev/2026-10-18-shared-sequence-first-gate.md",
+    "digest": ".dev-vault/tests/runs/20261018T233140.839798Z-shared-sequence/report.jsonl",
+    "historical": "shared12/12 accepted; no physical/root coverage then; no old12 added to this roster",
+    "reuse": "two unchanged existing assertion intents freshly proposed because src/boot_verify.c dependency changed; no historical pass credited as fresh",
+    "historical_nonpass": "toc retains earlier WDT stack-overflow and disassembly-parser INVALID evidence, not product failures and not erased"
+  },
+  "testability": {
+    "driveable_inputs": [
+      "exact source leaf rewrite of five direct accesses to bounded static model pointers; rejection if access patterns change",
+      "real boot_flash.c with read IO doubles at manifest and bridge boundary only",
+      "temporary PUBLIC files, production options, key-file changes and direct missing-header compile",
+      "actual root CMake target and synthetic ARM link; existing shared model fixture"
+    ],
+    "observable_outputs": [
+      "exact status/results/output bytes/callback address-direction-value traces",
+      "configure exits/diagnostics/generated bytes/SHA256/object hashes and mtimes",
+      "ELF typed object section/size/address tuples, symbol code types, include dependencies and raw byte exclusion"
+    ],
+    "preconditions": [
+      "local public-only fixtures and provisioned MbedTLS; no setup/download",
+      "Python3>=3.9, CMake>=3.20, make; /usr/bin/clang sanitizer support",
+      "official bundle ~/.toolchains/arm-gnu-toolchain-15.3.rel1-darwin-arm64-arm-none-eabi by default, or absolute executable BOOT_ARM_GCC; no PATH fallback",
+      "temporary builds outside repository because production gate forbids source-tree generated material",
+      "exclusive stable source/tool tree throughout each run and between bring-up/verification"
+    ],
+    "fixture_environment_limits": [
+      "mapped bytes/register storage static and bounded, never physical mmap/arbitrary host physical dereference",
+      "mock byte loads cannot fail as bus accesses; IO failures injected only through documented boot_flash callback ABI",
+      "timing and measurements are not tested; mtime sequencing controls build dependency observation, not performance",
+      "SDK/system library bytes beyond pinned compiler and discovered linker tools not fully frozen; native toolchain integration coverage limited accordingly",
+      "SEC2 generator is a standardized PUBLIC curve point admission fixture, not generated material or an authorized production identity"
+    ],
+    "blind_spots": [
+      "physical bus faults, write durability/power loss/timing/clock truth",
+      "genuine reset/exclusion/permissions and provisioning authority",
+      "actual target execution/final boot placement/32KiB fit/retained lifetime",
+      "valid alternate-root signed firmware: none exists in permitted fixtures; configuration accepts alternate public point and actual verifier rejects demo signed manifests, no alternate firmware acceptance claim"
+    ]
+  },
+  "dropped_merged": [
+    {
+      "candidate": "old shared12 replay",
+      "survivor": "shared-signed-run + shared-signature-reject",
+      "reason": "only changed verifier dependency warrants these two; remaining orchestration semantics unchanged"
+    },
+    {
+      "candidate": "slot/frequency/address/root-format Cartesian matrices",
+      "survivor": "physical-map, init-clock, bridge-bind, root-reject sequential representatives",
+      "reason": "one representative per meaningful path; whitelist enumeration is a contract structural assertion, not new logical reps"
+    },
+    {
+      "candidate": "separate bind/reader containers",
+      "survivor": "bridge-bind",
+      "reason": "single offline composition boundary script; no redundant compile/run"
+    },
+    {
+      "candidate": "standalone default root good/invalid signature test",
+      "survivor": "two shared regressions",
+      "reason": "same actual verifier semantic path; avoid duplicate execution"
+    },
+    {
+      "candidate": "alternate-key signing/KAT crypto replay/Debug/QEMU/full-fit",
+      "survivor": null,
+      "reason": "no signing/private keys; unchanged crypto test not repeated; other configurations/integrations out of scope"
+    }
+  ],
+  "coverage_ledger": {
+    "logical_representatives": 11,
+    "new_representatives": 9,
+    "unchanged_regression_intents": 2,
+    "planned_executions": {
+      "bringup": 1,
+      "verification": 11,
+      "conditional_max": 11
+    },
+    "planned_configurations": {
+      "HOST adapter sanitized": 5,
+      "root CMake scripts with host compile": 3,
+      "ARM synthetic static": 1,
+      "existing HOST shared sanitized": 2
+    },
+    "attempted": 0,
+    "completed": 0,
+    "covered_behaviors": [],
+    "proposed_coverage": {
+      "safe-args": [
+        "NULL/misaligned RESC read outputs and flash-register read outputs return -1, sentinel uint32 unchanged; leaf calls=0.",
+        "NULL/misaligned flash object, zero polls and Hz representatives 0/999999/8000001/51000000 return BOOT_FLASH_ARGUMENT; flash bytes unchanged; calls=0.",
+        "NULL/misaligned flash/images inputs return BOOT_FLASH_ARGUMENT; images bytes unchanged and calls=0."
+      ],
+      "physical-map": [
+        "RESC address=0x400fe05c; two fresh reads yield 0x80000012 then 0xc000001a; write value=0xc0000018 with exact R,R,W trace.",
+        "FMA/FMD/FMC/FCRIS/FCMISC/USECRL constants equal 0x400fd000/004/008/00c/014 and 0x400fe140; all six reads hit exact address/value; only FMA/FMD/FMC/FCMISC writes succeed.",
+        "FCRIS/USECRL/unlisted writes and unlisted reads reject without leaf access or status/timing mutation.",
+        "Byte reader returns first/last mapped byte and exact four-byte interior sequence with ascending address trace; below/end/wrap/cross-end/SIZE_MAX/zero/NULL reject without leaf accesses."
+      ],
+      "init-clock": [
+        "USECRL=7 with 9MHz returns CLOCK, flash object byte-identical, exactly one USECRL read and no writes.",
+        "Fresh USECRL=0xabc00007 with 8MHz,polls3 returns OK, descriptor context NULL, mhz8/polls3/unblocked/blocked_result OK, exactly one read and no timing mutation.",
+        "After timing changes to8, real boot_flash_program at metadata0 returns CLOCK with exactly FMC then USECRL reads and no command/status/data writes."
+      ],
+      "images-publication": [
+        "Real boot_flash_read drives double callback tuples [(0x23c00,160),(0x3f400,160)]; output sizes=[160,160], full wires=[0x31*160,0x72*160].",
+        "Separate fresh first/second-read IO failures after dirtying the temporary yield BOOT_FLASH_IO, callback counts1/2, entire caller output unchanged; no retry."
+      ],
+      "bridge-bind": [
+        "Requests (0x23b00,256),(0x3f3ff,1) return256/1 with exact original context and callback tuples; read IO failure returns0.",
+        "Metadata/manifest/gap/wrapped/cross-end/zero/257-byte/NULL/misaligned-context requests return0 with no downstream reads.",
+        "Five NULL and five misaligned bind positions return-1 preserving parameters/register/store bytes and zero leaf calls.",
+        "Valid bind sets exact pointers to caller-owned registers/store/images, reader=boot_target_verify_read, context=original flash; all other parameter bytes preserved including nonNULL continuity/diagnostic/producer/delay; descriptors exactly match production factories; no MMIO."
+      ],
+      "root-reject": [
+        "Fresh out-of-tree configurations for unspecified key/missing file/64-byte SEC1/offcurve(0,0)/repository demo public key each exit nonzero with exact branch-specific diagnostic substring.",
+        "Each previously seeded generated root header is absent after rejection; no defaults or key generation."
+      ],
+      "root-rebuild": [
+        "RFC6979 A.2.5 Q configuration prints SHA256(RFC), generated C array exactly RFC65 bytes.",
+        "After initial build, replace only test PUBLIC file with SEC2 P256 basepoint literal; cmake --build alone prints SHA256(SEC2), generated header becomes exact SEC2 bytes.",
+        "Actual boot_verify.c.o SHA256 and mtime both change; rebuilt actual production verifier still rejects existing demo-signed fixture; no explicit reconfigure or sleep/poll."
+      ],
+      "verifier-roots": [
+        "RFC production host verifier returns BOOT_VERIFY_ERROR_SIGNATURE for unchanged fixture_manifest[0] and signature-byte96 corruption, keeping full manifest output sentinel unchanged.",
+        "Direct compilation with production definition but no generated-header include directory fails mentioning lm3s6965_boot_production_public_key.h, with no output object.",
+        "Default actual signed success and invalid-signature behavior are asserted by the two unchanged shared regression intents, not duplicated here."
+      ],
+      "arm-closure": [
+        "Absolute official 15.3 compiler/tool paths; actual root CMake target lm3s6965_boot_target_io and dependencies build for CortexM3/Thumb/soft/Os/enum32; no transformed adapter on ARM.",
+        "Final synthetic unit ELF has no undefined symbols; each of six adapter APIs plus sequence/flash/store/producer/runtime/reset/select/verify/mbedtls_ecdsa_verify has one T/t definition in synthetic FLASH [0,0x100000).",
+        "Actual adapter object has no nonempty writable allocated section and no non-rodata static object; no extra mutable adapter state.",
+        "Exactly one lm3s6965_boot_public_key object, size65, in actual read-only CODE .text section below0x100000; production include dependencies contain generated root and exclude demo header; ELF contains selected RFC bytes but no demo bytes/symbol.",
+        "Full static disassembly/map/ELF retained; synthetic FLASH1MiB/RAM64KiB is NOT final boot layout/32KiB fit/retained lifetime/target execution."
+      ],
+      "shared-signed-run": [
+        "Execute existing sequence_host signed-run without modifying its assertion intent: exact outer/nested status-valid tuple, selected A/MSP/reset vector/authority equality, one original watchdog configure, exact feed history, EMPTY continuity and terminal no-IO duplicate.",
+        "Accepted verifier source baseline bc63e3c02f91eeb32858ba85313ab7ae7255d23ee318b58010e2a2a64d54abca differs from scoped current verifier; this is why regression is included."
+      ],
+      "shared-signature-reject": [
+        "Execute existing sequence_host signature-reject unchanged: verify_result[A]=ERROR_SIGNATURE/evidence_mask1, FAILED/RUNTIME, zero payload reads/feeds, original configure once, epoch1/verification1/blocked/no evidence, unchanged output and terminal no-IO duplicate."
+      ]
+    },
+    "intentionally_uncovered": {
+      "Debug": "not planned; no equivalence claim",
+      "all old shared reps other than two": "unchanged policy, no replay or fresh credit",
+      "full production executable/fit/retained callbacks": "only synthetic closure",
+      "alternate-root signed firmware acceptance": "no permitted signed fixture for alternate root"
+    },
+    "untestable_by_construction": [
+      "physical bus fault containment",
+      "physical timing/durability/reset/board/clock authority",
+      "authorization of selected PUBLIC fingerprint"
+    ],
+    "mocked_collaborators": [
+      "five HOST access leaves only",
+      "manifest/bridge IO fault callback doubles",
+      "existing shared reset/watchdog/flash/payload model IO; real authentication"
+    ],
+    "disabled_integrations": [
+      "QEMU",
+      "hardware",
+      "network",
+      "deploy/erase/actuation/application dispatch"
+    ],
+    "quarantined_tests": [],
+    "invalid_tests": [],
+    "remaining_gaps": [
+      "all proposed executions unrun; no fresh pass claims"
+    ]
+  },
+  "runner": {
+    "entry": "python3 tests/boot/run_physical_root.py",
+    "selectors": [
+      "--all",
+      "--case NAME repeatable"
+    ],
+    "presentation": [
+      "--human",
+      "--failures-only"
+    ],
+    "baseline": "--baseline-manifest prior/manifest.json enforces exact source/tool continuity after valid bring-up",
+    "artifacts": ".dev-vault/tests/runs/<timestamp>-physical-root/{report.jsonl,run.log,manifest.json,safe_adapter.c,adapter-synthetic.elf,adapter-synthetic.map,actual-adapter.o,rebuilt-public-root.h}; external /tmp/physical-root-* build tree recorded in manifest",
+    "retention": "last5 per-target run directories; external build trees preserved for triage, not automatically pruned",
+    "output": "fixed-key per-case JSONL, per-target summary and rollup; raw command output only in log; manifest reconciles exact selected roster/configurations/nested outcomes",
+    "oracle_selfchecks": [
+      "nm name/type/address",
+      "objdump object name/section/size/address",
+      "section name/size/address/flags",
+      "PUBLIC header exact bytes",
+      "Make dependency paths",
+      "completion positive/negative",
+      "C assertion location/expression"
+    ],
+    "identity": "source/public fixture/crypto/test/CMake input + official bundle/discovered tools SHA256 before/after, optionally between runs; SDK limitations declared; extra identity/completeness records are infrastructure evidence not logical representatives"
+  },
+  "budget": {
+    "allowed_new": 12,
+    "proposed": 11,
+    "surviving": 11,
+    "new": 9,
+    "reused_intents": 2,
+    "upfront_invocations": [
+      {
+        "phase": "bringup",
+        "seconds": 600,
+        "cases": [
+          "safe-args"
+        ]
+      },
+      {
+        "phase": "verification",
+        "seconds": 600,
+        "cases": "all11",
+        "requires": "valid bring-up, exact identities and gate adjudication"
+      },
+      {
+        "phase": "conditional correction",
+        "seconds": 300,
+        "cases": "only infrastructure-invalid/unattempted affected cases; at most11",
+        "requires": "infrastructure-invalid harness correction only; no product fixes/retries; preserve original evidence, gate chooses scope"
+      }
+    ],
+    "planned_observations": 12,
+    "maximum_observations_with_conditional": 23,
+    "build_cost": "bringup1 native adapter target; verification1 native adapter build +5 rejection configure attempts +2 production-host trees (rebuild tree builds twice) +1 actual ARM synthetic target closure +1 existing shared host build; no rebuild per host case",
+    "expected_seconds": "bringup10-60; verify30-180 local-cache/tool-hash dependent; hard child deadlines, wall budget includes fingerprint IO and records overrun invalid",
+    "read_cost": "batched scoped sources/designs/known-good digest metadata; no test discovery, full logs or private-key IO; no explicit read-byte quota supplied",
+    "writer_consumed": {
+      "configure": 0,
+      "build": 0,
+      "compiler": 0,
+      "tests": 0,
+      "runner_invocations": 0
+    },
+    "adjustments": "9 new +2 existing rather than old12+new; default signature comparator merged into shared regressions; no extra oracle logical reps"
+  }
+}

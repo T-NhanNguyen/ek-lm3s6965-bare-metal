@@ -1,4 +1,8 @@
 #include "raw_protocol.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 const uint8_t raw_board_mac[6] = {0x02, 0x00, 0x00, 0x69, 0x65, 0x02};

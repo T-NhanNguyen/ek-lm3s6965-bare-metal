@@ -2,16 +2,26 @@
  * Receive ownership: accept one whole chain, defer credit until each prefix is
  * consumed, and refuse subsequent chains without touching them. */
 #include "lm3s6965/ftp_tcp.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "lm3s6965/ftp_core.h"
-#include "lwip/tcp.h"
+#include "lm3s6965/ftp_diagnostic.h"
+#include "lwip/arch.h"
+#include "lwip/err.h"
 #include "lwip/init.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/ip_addr.h"
+#include "lwip/pbuf.h"
+#include "lwip/priv/tcp_priv.h" /* tcp_abandon(reset=0) for offline teardown */
+#include "lwip/sys.h"
+#include "lwip/tcp.h"
 #if LWIP_VERSION_MAJOR != 2 || LWIP_VERSION_MINOR != 2 || LWIP_VERSION_REVISION != 1
 #error "FTP close/refused-data ownership requires review for this lwIP version"
 #endif
-#include "lwip/priv/tcp_priv.h" /* tcp_abandon(reset=0) for offline teardown */
-#include "lwip/sys.h"
-#include <stdbool.h>
-#include <string.h>
 
 struct channel {
     struct tcp_pcb *pcb;
@@ -24,6 +34,8 @@ static struct channel control, data;
 static struct tcp_pcb *listener, *passive;
 static ip_addr_t local;
 static uint32_t now;
+/* Foreground owner failures are sticky, unlike handled client failures. */
+static bool servicing, service_failed;
 
 static err_t receive(void *, struct tcp_pcb *, struct pbuf *, err_t);
 static err_t sent(void *, struct tcp_pcb *, u16_t);
@@ -153,6 +165,9 @@ err_t ftp_tcp_start(const ip4_addr_t *address)
 }
 void ftp_tcp_link_down(void)
 {
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_cause(FTP_DIAG_TCP_LINK_DOWN, sys_now());
+#endif
     close_listener(&passive);
     close_listener(&listener);
     discard(&data, true);
@@ -238,10 +253,17 @@ static void input_data(void)
             data.failed = true;
             return;
         }
-        if (ftp_core_upload_chunk(bytes, n, now)) credit(&data, n);
+        size_t accepted = 0u;
+        (void)ftp_core_upload_span(bytes, n, now, &accepted);
+        if (accepted != 0u) credit(&data, (u16_t)accepted);
         actions();
     }
-    if (data.pcb && data.fin && !data.rx && !data.closing) {
+    /* Reoffer refused chains before observing EOF. receive() may set fin only
+     * after lwIP delivers the retained chain (including its FIN marker). */
+    if (data.pcb && !data.rx && data.pcb->refused_data)
+        (void)tcp_process_refused_data(data.pcb);
+    if (data.pcb && data.fin && !data.rx && !data.pcb->refused_data && !data.closing &&
+        !ftp_core_eof_pending()) {
         if (ftp_core_direction() == FTP_UPLOAD) {
             (void)ftp_core_upload_eof(now);
             actions();
@@ -298,7 +320,7 @@ static void flush_close(struct channel *c)
     }
     if (!c->closing) return;
     /* Never graceful-close with uncredited receive bytes (lwIP sends RST). */
-    if (c->rx) return;
+    if (c->rx || c->pcb->refused_data) return;
     p = c->pcb;
     /* Pinned lwIP 2.2.1: TX-only shutdown retains application ownership,
      * but tcp_close_shutdown_fin masks ERR_MEM as ERR_OK + TF_CLOSEPEND.
@@ -323,21 +345,45 @@ static void flush_close(struct channel *c)
         /* Core's original pending-close deadline bounds ERR_MEM retries. */
     }
 }
-void ftp_tcp_service(uint32_t time)
+bool ftp_tcp_service(uint32_t time)
 {
+    if (servicing || service_failed || !ftp_core_is_initialized()) {
+        service_failed = true;
+        return false;
+    }
+    servicing = true;
     now = time;
     /* Independent of core reply lifetime: tcp_write may drain the ring while
      * tcp_output still cannot submit anything. Enqueues do not reset this. */
-    if (control.output && (uint32_t)(now - control.output_since) >= 5000u)
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_cause_t control_cause = control.failed ?
+        FTP_DIAG_TCP_CONTROL_ERROR : FTP_DIAG_TCP_CONTROL_FIN;
+    ftp_diagnostic_cause_t data_cause = FTP_DIAG_TCP_DATA_ERROR;
+#endif
+    if (control.output && (uint32_t)(now - control.output_since) >= 5000u) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        if (!control.failed) control_cause = FTP_DIAG_TCP_CONTROL_OUTPUT;
+#endif
         control.failed = true;
-    if (data.output && (uint32_t)(now - data.output_since) >= 5000u)
+    }
+    if (data.output && (uint32_t)(now - data.output_since) >= 5000u) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        if (!data.failed) data_cause = FTP_DIAG_TCP_DATA_OUTPUT;
+#endif
         data.failed = true;
+    }
     if (control.failed || (control.pcb && control.fin)) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        ftp_diagnostic_cause(control_cause, now);
+#endif
         ftp_core_session_lost();
         discard(&control, false);
         discard(&data, false);
         close_listener(&passive);
     } else if (data.failed) {
+#if LM3S6965_FTP_DIAGNOSTIC
+        ftp_diagnostic_cause(data_cause, now);
+#endif
         discard(&data, false);
         ftp_core_data_error(now);
     }
@@ -347,7 +393,13 @@ void ftp_tcp_service(uint32_t time)
     write_control();
     flush_close(&control); /* submit 150 before enabling any data work */
     input_data();
+    /* One boot action per turn, outside every raw TCP callback. Reentry must
+     * not authorize another operation step or completion. */
+    if (!service_failed) ftp_core_foreground(now);
+    actions();
     write_data();
     flush_close(&data);
     actions();
+    servicing = false;
+    return !service_failed;
 }

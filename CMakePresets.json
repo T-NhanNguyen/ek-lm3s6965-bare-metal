@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "ab-boot-demo",
+      "displayName": "Local production-root A/B FTP demo",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchain-lm3s6965.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "LM3S6965_BUILD_AB_BOOT_DEMO": "ON",
+        "LM3S6965_BUILD_AB_BOOT_DEMO_FTP": "ON",
+        "LM3S6965_BUILD_BOOT_DISPATCH_IMAGE": "ON",
+        "LM3S6965_BUILD_BOOT_RESET": "OFF",
+        "LM3S6965_BOOT_PHYSICAL_PRODUCTION": "ON",
+        "LM3S6965_BOOT_PUBLIC_KEY_FILE": ""
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "ab-boot-demo",
+      "configurePreset": "ab-boot-demo",
+      "targets": ["lm3s6965_ab_ftp_a", "lm3s6965_ab_ftp_b"]
+    }
+  ]
+}

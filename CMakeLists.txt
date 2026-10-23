@@ -5,7 +5,43 @@ project(lm3s6965_bsp
         DESCRIPTION "Board support package for the TI/Luminary LM3S6965 (ARM Cortex-M3) evaluation board"
         LANGUAGES C)
 
+include(cmake/boot_trust_root.cmake)
+
+option(LM3S6965_BUILD_BOOT_RESET "Build boot-only reset-to-decision image (no dispatch)" OFF)
+option(LM3S6965_BUILD_BOOT_DISPATCH_IMAGE
+    "Build opt-in checked application dispatch image (experimental)" OFF)
+if(LM3S6965_BUILD_BOOT_RESET AND LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+    message(FATAL_ERROR "Boot decision and dispatch images are mutually exclusive")
+endif()
+if((LM3S6965_BUILD_BOOT_RESET OR LM3S6965_BUILD_BOOT_DISPATCH_IMAGE)
+        AND NOT LM3S6965_BOOT_PHYSICAL_PRODUCTION)
+    message(FATAL_ERROR "Boot images require LM3S6965_BOOT_PHYSICAL_PRODUCTION=ON and an explicit PUBLIC key")
+endif()
+
+option(LM3S6965_BUILD_AB_BOOT_DEMO
+    "Build offline A/B LED handoff fixtures: slot-A breathing plus slot-B blink (not hardware ready)" OFF)
+option(LM3S6965_BUILD_BOOT_BREATHING_LED
+    "Compat alias for LM3S6965_BUILD_AB_BOOT_DEMO (retired examples/boot-breathing-led path)" OFF)
+if(LM3S6965_BUILD_BOOT_BREATHING_LED)
+    message(DEPRECATION "LM3S6965_BUILD_BOOT_BREATHING_LED is a compat alias; use LM3S6965_BUILD_AB_BOOT_DEMO")
+    set(LM3S6965_BUILD_AB_BOOT_DEMO ON)
+endif()
+
+option(LM3S6965_BUILD_AB_BOOT_DEMO_FTP
+    "Build production FTP receive variants of the A/B LED demo (requires production boot closure)" OFF)
+if(LM3S6965_BUILD_AB_BOOT_DEMO_FTP AND NOT LM3S6965_BUILD_AB_BOOT_DEMO)
+    message(FATAL_ERROR "A/B demo FTP images require LM3S6965_BUILD_AB_BOOT_DEMO=ON (or its legacy alias)")
+endif()
+
+option(LM3S6965_FTP_DIAGNOSTIC
+    "Retain software-tick AUTH/abort evidence for the measured FTP experiment" OFF)
+
 option(LM3S6965_BUILD_ETHERNET_FTP "Build the opt-in bare-metal lwIP FTP example" OFF)
+option(LM3S6965_FTP_FOREGROUND_OWNER
+    "Build RAM FTP slot application with inherited foreground watchdog ownership" OFF)
+if(LM3S6965_FTP_FOREGROUND_OWNER AND NOT LM3S6965_BUILD_ETHERNET_FTP)
+    message(FATAL_ERROR "Foreground FTP owner requires LM3S6965_BUILD_ETHERNET_FTP=ON")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

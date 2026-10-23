@@ -1,25 +1,35 @@
-# Documentation
+# Manual
 
-These documents cover the detailed topics that the main [README](../README.md) refers to.
+Start with the outcome you need. Each chapter gives the mental model first, then maps procedures and reference contracts to source files. Commands assume the repository root unless stated otherwise. Build and model checks do not grant permission for hardware, network, key access or provisioning.
 
-- [Verify the build](verifying-the-build.md) — check the ELF architecture and attributes.
-- [Run without hardware (QEMU)](qemu.md) — test the firmware with no silicon attached.
-- [FreeRTOS target](freertos.md) — build and run the FreeRTOS image.
-- [System clock](system-clock.md) — the PLL configuration and the `rcc:` self-check.
-- [Console output](console.md) — the SWO and UART console backends.
-- [If it fails](troubleshooting.md) — OpenOCD error messages and their causes.
-- [Memory map](memory-map.md) — the flash, SRAM, and peripheral address regions.
-- [Peripherals](peripherals.md) — the GPIO data mask and the guarded debug pins.
-- [OLED display](oled.md) — the recovered 128x96 panel protocol and its memory strategies.
-- [Ethernet diagnostics and evidence](ethernet.md) — distinct link/RAW targets,
-  native macOS host script, exact frame contract, permissions, and readiness.
-  It preserves historical host and physical link observations without claiming IP or FTP acceptance.
-- [Offline FTP source and future test](ftp.md) — opt-in build, pinned lwIP, approved RAM contract,
-  final resource accounting, offline packet tests, and an authorization-gated curl byte comparison.
-- [Reusable FTP libraries](ftp-library.md) — public core, TCP, and RAM APIs, caller-owned storage,
-  binding/reset lifetimes, CMake reuse, and dedicated pinned lwIP limits.
-- [Ethernet tooling](../scripts/ethernet/README.md) — relocated tree, consolidated offline suites,
-  retained coverage, compile/link-only consumer, and separate authorization-gated live launchers.
-- [Toolchain](toolchain.md) — why the build uses the official Arm toolchain and its startup contract.
-- [Conventions](conventions.md) — include guards, constant representation, and datasheet authority.
-- [Function index](function-index.md) — the source functions and their descriptions.
+## Build and understand the board
+
+| Chapter | Outcome |
+|---|---|
+| [Toolchain and dependencies](toolchain.md) | Select a complete Arm toolchain and populate exact dependency pins explicitly. |
+| [Board bring-up and console](bring-up.md) | Capture startup text and diagnose the correct failure layer. |
+| [BSP registers and conventions](bsp.md) | Find the memory map, header rules and function reference. |
+| [Clocks, GPIO and OLED](peripherals.md) | Configure clock consumers, protected pins and write-only display rendering. |
+| [Applications and emulation](applications.md) | Integrate FreeRTOS and interpret QEMU evidence within its model. |
+
+## Authenticate, enter and update applications
+
+| Chapter | Outcome |
+|---|---|
+| [Boot architecture and diagnostic ABI](boot-architecture.md) | Follow reset accounting, selection, candidate transactions, handoff and coherent diagnostics. |
+| [Boot memory layout and resource validation](boot-memory-layout.md) | Enforce flash ownership, retained SRAM, allocator bounds and final-artifact checks. |
+| [Signed packages and trust roots](boot-package.md) | Produce exact slot artifacts, preserve key custody and generate offline factory metadata. |
+| [Startup continuity and watchdog ownership](boot-startup.md) | Preserve one watchdog and retained provenance through application entry and clock-consumer transition. |
+| [Firmware update and PC workflow](boot-reset-image.md) | Separate durable reception, reset, observed execution and explicit confirmation. |
+
+## Integrate and validate
+
+| Chapter | Outcome |
+|---|---|
+| [FTP libraries and platform contracts](ftp.md) | Reuse core/TCP/RAM APIs and bind asynchronous boot operations without weakening storage or transport ownership. |
+| [Tools and validation](tools-testing.md) | Choose static, native, memory-peer and stack-instrumentation checks by their evidence boundary. |
+| [Why this works and where proof stops](limitations.md) | Distinguish architectural stability, model evidence and physical acceptance. |
+
+Operational Ethernet procedures live in [scripts/ethernet-diagnostics.md](../scripts/ethernet-diagnostics.md). That guide retains the separate RAW and link identities, frame contracts, diagnostic commands and reset/traffic warnings. The [script launchpad](../scripts/README.md), [test launchpad](../tests/README.md) and example READMEs describe their local entry points.
+
+Dated progress, installed-image observations and fixture results are not current manual contracts. A procedure here does not identify the image currently on the board. Revalidate identity and obtain separate approval before live operations.

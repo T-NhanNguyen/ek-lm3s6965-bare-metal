@@ -21,25 +21,30 @@ file(GLOB LM3S6965_DISCOVERED_TOOLCHAIN_ROOTS
     "/Applications/ArmGNUToolchain/*"
     "/Applications/ARM")
 
-set(LM3S6965_TOOLCHAIN_BIN_HINTS "")
+# Preserve normal-variable callers too, including under pre-CMP0126 policy.
+if(NOT DEFINED LM3S6965_TOOLCHAIN_BIN_HINTS)
+    set(LM3S6965_TOOLCHAIN_BIN_HINTS "" CACHE STRING
+        "Additional GNU Arm Embedded toolchain bin directories")
+endif()
+set(_lm3s6965_toolchain_bin_hints ${LM3S6965_TOOLCHAIN_BIN_HINTS})
 foreach(toolchain_root IN LISTS LM3S6965_DISCOVERED_TOOLCHAIN_ROOTS)
-    list(APPEND LM3S6965_TOOLCHAIN_BIN_HINTS "${toolchain_root}/bin")
+    list(APPEND _lm3s6965_toolchain_bin_hints "${toolchain_root}/bin")
 endforeach()
 
 set(LM3S6965_TOOLCHAIN_PREFIX "arm-none-eabi-"
     CACHE STRING "GNU Arm Embedded toolchain program prefix")
 
 find_program(LM3S6965_C_COMPILER ${LM3S6965_TOOLCHAIN_PREFIX}gcc
-    HINTS ${LM3S6965_TOOLCHAIN_BIN_HINTS}
+    HINTS ${_lm3s6965_toolchain_bin_hints}
     REQUIRED)
 find_program(LM3S6965_OBJCOPY ${LM3S6965_TOOLCHAIN_PREFIX}objcopy
-    HINTS ${LM3S6965_TOOLCHAIN_BIN_HINTS}
+    HINTS ${_lm3s6965_toolchain_bin_hints}
     REQUIRED)
 find_program(LM3S6965_SIZE ${LM3S6965_TOOLCHAIN_PREFIX}size
-    HINTS ${LM3S6965_TOOLCHAIN_BIN_HINTS}
+    HINTS ${_lm3s6965_toolchain_bin_hints}
     REQUIRED)
 find_program(LM3S6965_GDB ${LM3S6965_TOOLCHAIN_PREFIX}gdb
-    HINTS ${LM3S6965_TOOLCHAIN_BIN_HINTS})
+    HINTS ${_lm3s6965_toolchain_bin_hints})
 
 # Guard against a libc-less toolchain, with an actionable message.
 execute_process(

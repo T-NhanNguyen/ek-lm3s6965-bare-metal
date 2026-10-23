@@ -2,7 +2,12 @@
 #include "lm3s6965/ram_file.h"
 
 #include <limits.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lm3s6965/ftp_storage.h"
 
 typedef struct
 {

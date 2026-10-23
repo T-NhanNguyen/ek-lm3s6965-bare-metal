@@ -1,0 +1,377 @@
+{
+  "schema": "shared-sequence-first-gate-v1",
+  "state": "proposal-only-not-run",
+  "change_manifest": {
+    "scope": [
+      "src/boot_sequence.c (new untracked implementation)",
+      "include/lm3s6965/boot_sequence.h (new untracked API)",
+      "src/CMakeLists.txt: sequence archive registration only",
+      "docs/boot-startup.md: Shared boot sequence section"
+    ],
+    "authority": ".dev-vault/design/shared-real-boot-sequence.md",
+    "risks": [
+      "initial/fresh reset ordering and fullword consistency",
+      "terminal admission and unchanged output",
+      "same original producer watchdog/history through real verifier policy"
+    ],
+    "preserved": [
+      "no default startup wiring",
+      "sole existing runtime/reset/select/verifier policy",
+      "EMPTY is not dispatch-ready",
+      "no cleanup/retry/reconfigure/feed beyond real runtime progress"
+    ]
+  },
+  "known_good_boundary": {
+    "evidence": ".dev-vault/tests/toc.md:7-25; runs/20261018T085130.108206Z-timer2-producer/report.jsonl",
+    "claim": "historical setup-only producer six representatives and separate bringup, not shared integration coverage",
+    "nonpass_evidence": ".dev-vault/tests/toc.md:85-97 preserves prior runtime fixture sanitizer stack-overflow invalidity; not product defect",
+    "reuse": "no old pass counted as new shared-sequence pass"
+  },
+  "testability": {
+    "driveable_inputs": [
+      "real production shared run through two forwarding-only TU observation shims",
+      "external HOST MMIO/gate/delay adapter with context == continuity.context",
+      "independent early/capture/clear raw words and failure indexes",
+      "two-page NOR fixture containing CRC/commit-valid metadata, current confirmed A, no candidate",
+      "checked-in fixture_manifest[0] with reconstructed exact signed payload; no signing/private key IO"
+    ],
+    "observable_outputs": [
+      "exact outer/nested status and valid-bit tuples",
+      "bytewise out/continuity/diagnostic preservation where specified",
+      "callback identity/order/counters and verification epoch/progress at feeds",
+      "real signature verification result and selected image/authority",
+      "unit ELF code symbol types and instruction tuples"
+    ],
+    "preconditions": [
+      "local MbedTLS sources already provisioned; no setup/download",
+      "host /usr/bin/clang, CMake and Python3 available",
+      "official exact absolute Arm bundle available",
+      "one fresh model boot per admitted subscenario; no retained HOST lifetime claims"
+    ],
+    "blind_spots": [
+      "opaque context extent and transitive lifetime",
+      "physical RESC/WDT/timing/clock authority and genuine reset",
+      "actual ARM execution and final placement/fit",
+      "production trust root/provisioning and full integration"
+    ]
+  },
+  "cases": [
+    {
+      "name": "signed-run",
+      "intent": "Real signed demo A + committed authority yields RUN with original watchdog history and EMPTY continuity.",
+      "class": "authoritative real verifier success",
+      "asserts": [
+        "outer OK/RUNTIME; bridge OK valid=7; runtime OK valid=3; selection evidence_mask=1 and verify_result[A]=OK",
+        "exact slot A/MSP=BOOT_INITIAL_MSP/reset=A+9 and full authority record equal",
+        "configure pointer == runtime pointer == &continuity.watchdog; configs=1 loads=1 ICRs=3 feeds=2 payload_reads=1",
+        "feed tuples (verification,epoch,completed) == [(1,1,0),(1,2,BOOT_PAYLOAD_MIN)]; final epoch=3 verification=1 owner=BOOT; evidence=0 not blocked; continuity EMPTY",
+        "zero flash erases/programs; every prepublication callback sees byte-identical output sentinel; duplicate CONSUMED/NONE no IO or output changes"
+      ]
+    },
+    {
+      "name": "early-stop",
+      "intent": "An initial RESC IO error consumes without touching stale continuity, diagnostics, producer, store or output.",
+      "class": "pre-producer admitted failure",
+      "asserts": [
+        "FAILED/EARLY_READ; exactly one raw read; zero producer/store/payload/clear/configure calls",
+        "continuity and diagnostic64 bytes unchanged, out unchanged; duplicate no IO"
+      ]
+    },
+    {
+      "name": "producer-stop",
+      "intent": "Ignored WDT gate stops before runtime with terminal producer quarantine and no recovery IO.",
+      "class": "producer admitted setup failure",
+      "asserts": [
+        "FAILED/PRODUCER; one RESC read; producer calls=3 writes=1 delays=0 configure=0 runtime=0",
+        "FAILED continuity, watchdog blocked/evidence=0; zero reset writes/store/payload; out unchanged; duplicate no IO"
+      ]
+    },
+    {
+      "name": "capture-read-failure",
+      "intent": "The first runtime capture is new IO and an IO error cannot publish CAPTURE or access clear/store.",
+      "class": "fresh capture IO failure",
+      "asserts": [
+        "FAILED/RUNTIME; bridge RUNTIME_FAILED valid=3; runtime RESET_FAILED valid=1; reset CAPTURE_FAILED/report.valid=0",
+        "raw reads=2; clear writes=0; store/payload/feed=0; one original configure; epoch=1 verification=0 blocked/evidence=0; out unchanged; duplicate no IO"
+      ]
+    },
+    {
+      "name": "capture-fullword-mismatch",
+      "intent": "A fresh capture differing solely in unsupported bit31 fails before clear/store.",
+      "class": "fullword freshness mismatch",
+      "asserts": [
+        "same exact nested failure tuple as capture-read-failure",
+        "early=2 fresh=0x80000002; raw reads=2; clear writes/store/payload/feed=0; out unchanged; duplicate no IO"
+      ]
+    },
+    {
+      "name": "fresh-clear",
+      "intent": "A later independent RESC clear read may change and preserves all uncaptured/unsupported bits.",
+      "class": "post-match fresh clear success",
+      "asserts": [
+        "early=capture=0x80000002; later=0xc000001a; exactly 3 reads and one write=0xc0000018",
+        "same signed RUN and original-watchdog invariants as signed-run; clear precedes store"
+      ]
+    },
+    {
+      "name": "zero-supported",
+      "intent": "Matching unsupported-only capture skips clear IO while real selection still succeeds.",
+      "class": "zero supported capture",
+      "asserts": [
+        "early=capture=0x80000000; exactly 2 raw reads; zero reset writes",
+        "same signed RUN and original-watchdog invariants as signed-run"
+      ]
+    },
+    {
+      "name": "clear-faults",
+      "intent": "Clear read failure and possibly effected write failure stop without store/replay and preserve only CAPTURE evidence.",
+      "class": "terminal clear IO faults",
+      "asserts": [
+        "two distinct fresh modeled boots: CLEAR_READ_FAILED with reads=3 writes=0; CLEAR_WRITE_FAILED with reads=3 writes=1 last_write=0",
+        "both report.valid=CAPTURE; bridge RUNTIME_FAILED valid=3/runtime RESET_FAILED valid=1",
+        "store/payload/feeds=0; original configure once epoch=1 verification=0 blocked/evidence=0; out unchanged; duplicate no IO"
+      ]
+    },
+    {
+      "name": "guards",
+      "intent": "Callback reentry is BUSY and success is terminal CONSUMED without IO or output mutation.",
+      "class": "outer one-shot admission guards",
+      "asserts": [
+        "callback attempts at raw RESC, producer, delay, store, reader and runtime WDT boundaries return BUSY/NONE; >20 witnesses",
+        "each attempt preserves IO counters and output sentinel; all signed-run assertions still hold",
+        "postreturn CONSUMED/NONE no counter/output changes; no guard escape/reinit"
+      ]
+    },
+    {
+      "name": "structural",
+      "intent": "Invalid output spans and descriptors reject before IO, permitting correction on the same fresh sequence.",
+      "class": "pre-admission structural rejection",
+      "asserts": [
+        "nine sequential pre-admission probes: null/misaligned/sequence-alias output, zero/overflow Hz, null continuity/reader, output reader-context alias, diagnostic/output alias",
+        "each ARGUMENT/NONE; sequence byte-identical and not consumed; no callbacks/output mutations",
+        "corrected same object completes real signed RUN; no reinit between rejection and correction"
+      ]
+    },
+    {
+      "name": "signature-reject",
+      "intent": "A corrupted signed manifest cannot become modeled verifier success or trigger a feed/payload read.",
+      "class": "real authentication failure",
+      "asserts": [
+        "flip signature byte96; FAILED/RUNTIME bridge RUNTIME_FAILED runtime.valid=3",
+        "evidence_mask=1 verify_result[A]=ERROR_SIGNATURE; payload_reads=feeds=0; configure=1 verification=1 epoch=1",
+        "blocked/evidence=0; output unchanged; duplicate no IO"
+      ]
+    },
+    {
+      "name": "arm-closure",
+      "intent": "Official GNU Arm compiles the uninstrumented shared unit and links its real dependency closure, not a whole boot image.",
+      "class": "ARM compile and final unit-link closure",
+      "asserts": [
+        "fixed absolute GCC path and version15.3; Cortex-M3 Thumb soft-float Os enum32",
+        "unit ELF has zero undefined symbols; exactly one T/t symbol for sequence_run, producer_begin_io, runtime_watchdog_run, reset_handler_run, boot_select, boot_verify_manifest, mbedtls_ecdsa_verify",
+        "linewise decoder exact (address,mnemonic,operands) selfchecks include 3 operandless NOPs/bx lr and 32-bit mrs",
+        "shared object exact mrs register,PRIMASK instruction exists; full map/disassembly retained; no boot 32KiB fit claim"
+      ]
+    }
+  ],
+  "dropped_merged": [
+    {
+      "candidate": "A/B x metadata pages x payload sizes matrix",
+      "representative": "signed-run",
+      "reason": "same shared orchestration; selector/verifier variation covered by existing dependency suite"
+    },
+    {
+      "candidate": "separate duplicate-after-every-error test",
+      "representative": "duplicate helper nested in admitted cases",
+      "reason": "terminal invariant belongs to each fault observation, not another logical test"
+    },
+    {
+      "candidate": "all producer failure phases",
+      "representative": "producer-stop",
+      "reason": "gate refusal witnesses shared stop; producer internal fault matrix already covered"
+    },
+    {
+      "candidate": "WDT 9-operation cut sweep, READY/TRIAL reconciliation",
+      "representative": null,
+      "reason": "unchanged existing runtime policy; outside first shared orchestration scope"
+    },
+    {
+      "candidate": "target hardware/QEMU/whole boot fit/Debug",
+      "representative": null,
+      "reason": "outside explicit scope; uncovered, not equivalent to Release"
+    }
+  ],
+  "coverage_ledger": {
+    "logical_representatives": 12,
+    "planned_configurations": {
+      "HOST Release ASan+UBSan": 11,
+      "ARM Os compile/link": 1
+    },
+    "planned_executions": {
+      "bringup": 1,
+      "full": 12,
+      "conditional_correction_max": 12
+    },
+    "attempted": 0,
+    "completed": 0,
+    "covered_behaviors": [],
+    "proposed_coverage": {
+      "signed-run": [
+        "outer OK/RUNTIME; bridge OK valid=7; runtime OK valid=3; selection evidence_mask=1 and verify_result[A]=OK",
+        "exact slot A/MSP=BOOT_INITIAL_MSP/reset=A+9 and full authority record equal",
+        "configure pointer == runtime pointer == &continuity.watchdog; configs=1 loads=1 ICRs=3 feeds=2 payload_reads=1",
+        "feed tuples (verification,epoch,completed) == [(1,1,0),(1,2,BOOT_PAYLOAD_MIN)]; final epoch=3 verification=1 owner=BOOT; evidence=0 not blocked; continuity EMPTY",
+        "zero flash erases/programs; every prepublication callback sees byte-identical output sentinel; duplicate CONSUMED/NONE no IO or output changes"
+      ],
+      "early-stop": [
+        "FAILED/EARLY_READ; exactly one raw read; zero producer/store/payload/clear/configure calls",
+        "continuity and diagnostic64 bytes unchanged, out unchanged; duplicate no IO"
+      ],
+      "producer-stop": [
+        "FAILED/PRODUCER; one RESC read; producer calls=3 writes=1 delays=0 configure=0 runtime=0",
+        "FAILED continuity, watchdog blocked/evidence=0; zero reset writes/store/payload; out unchanged; duplicate no IO"
+      ],
+      "capture-read-failure": [
+        "FAILED/RUNTIME; bridge RUNTIME_FAILED valid=3; runtime RESET_FAILED valid=1; reset CAPTURE_FAILED/report.valid=0",
+        "raw reads=2; clear writes=0; store/payload/feed=0; one original configure; epoch=1 verification=0 blocked/evidence=0; out unchanged; duplicate no IO"
+      ],
+      "capture-fullword-mismatch": [
+        "same exact nested failure tuple as capture-read-failure",
+        "early=2 fresh=0x80000002; raw reads=2; clear writes/store/payload/feed=0; out unchanged; duplicate no IO"
+      ],
+      "fresh-clear": [
+        "early=capture=0x80000002; later=0xc000001a; exactly 3 reads and one write=0xc0000018",
+        "same signed RUN and original-watchdog invariants as signed-run; clear precedes store"
+      ],
+      "zero-supported": [
+        "early=capture=0x80000000; exactly 2 raw reads; zero reset writes",
+        "same signed RUN and original-watchdog invariants as signed-run"
+      ],
+      "clear-faults": [
+        "two distinct fresh modeled boots: CLEAR_READ_FAILED with reads=3 writes=0; CLEAR_WRITE_FAILED with reads=3 writes=1 last_write=0",
+        "both report.valid=CAPTURE; bridge RUNTIME_FAILED valid=3/runtime RESET_FAILED valid=1",
+        "store/payload/feeds=0; original configure once epoch=1 verification=0 blocked/evidence=0; out unchanged; duplicate no IO"
+      ],
+      "guards": [
+        "callback attempts at raw RESC, producer, delay, store, reader and runtime WDT boundaries return BUSY/NONE; >20 witnesses",
+        "each attempt preserves IO counters and output sentinel; all signed-run assertions still hold",
+        "postreturn CONSUMED/NONE no counter/output changes; no guard escape/reinit"
+      ],
+      "structural": [
+        "nine sequential pre-admission probes: null/misaligned/sequence-alias output, zero/overflow Hz, null continuity/reader, output reader-context alias, diagnostic/output alias",
+        "each ARGUMENT/NONE; sequence byte-identical and not consumed; no callbacks/output mutations",
+        "corrected same object completes real signed RUN; no reinit between rejection and correction"
+      ],
+      "signature-reject": [
+        "flip signature byte96; FAILED/RUNTIME bridge RUNTIME_FAILED runtime.valid=3",
+        "evidence_mask=1 verify_result[A]=ERROR_SIGNATURE; payload_reads=feeds=0; configure=1 verification=1 epoch=1",
+        "blocked/evidence=0; output unchanged; duplicate no IO"
+      ],
+      "arm-closure": [
+        "fixed absolute GCC path and version15.3; Cortex-M3 Thumb soft-float Os enum32",
+        "unit ELF has zero undefined symbols; exactly one T/t symbol for sequence_run, producer_begin_io, runtime_watchdog_run, reset_handler_run, boot_select, boot_verify_manifest, mbedtls_ecdsa_verify",
+        "linewise decoder exact (address,mnemonic,operands) selfchecks include 3 operandless NOPs/bx lr and 32-bit mrs",
+        "shared object exact mrs register,PRIMASK instruction exists; full map/disassembly retained; no boot 32KiB fit claim"
+      ]
+    },
+    "intentionally_uncovered": {
+      "Debug": "not planned; no equivalence claim",
+      "other slots/sizes and runtime cut sweeps": "unchanged dependency coverage not rerun or credited",
+      "new production public root": "current verifier demo only"
+    },
+    "untestable_by_construction": [
+      "genuine physical reset/exclusion/oscillator truth",
+      "same-bit relatch durability",
+      "physical deadline and target boot FLASH fit"
+    ],
+    "mocked_collaborators": [
+      "MMIO/gate/delay only",
+      "reset registers only",
+      "metadata NOR storage only",
+      "payload byte reader only; authentication real"
+    ],
+    "disabled_integrations": [
+      "network",
+      "hardware",
+      "QEMU",
+      "application dispatch/handoff"
+    ],
+    "quarantined_tests": [],
+    "invalid_tests": [],
+    "remaining_gaps": [
+      "all proposed tests unexecuted"
+    ]
+  },
+  "oracle": {
+    "selfchecks": [
+      "instruction tuples",
+      "nm type/address/name tuples",
+      "completion marker positive+negative",
+      "assertion file/line/text tuple"
+    ],
+    "fixture_limits": "Aggregate fixtures static; no enormous inlined sanitizer stack. Stack-lifetime coverage for these fixtures unavailable. Timings modeled and no performance measurement.",
+    "failure_triage": "Validate oracle, fixture storage and environment before production; preserve original nonpass. ASan stack-overflow invalid, not product failure."
+  },
+  "runner": {
+    "entry": "python3 tests/boot/run_sequence.py",
+    "selectors": [
+      "--all",
+      "--case <name> repeatable"
+    ],
+    "presentation": [
+      "--failures-only",
+      "--human"
+    ],
+    "stdout": "one fixed-key JSONL record per case + target summary + rollup; verbose only with --human",
+    "artifacts": ".dev-vault/tests/runs/<timestamp>-shared-sequence/{run.log,report.jsonl,manifest.json,host-build,arm-build,sequence-unit.elf,sequence-unit.map}",
+    "retention": "last 5 target runs; uncommitted",
+    "identity": "before/after SHA256 scoped source/headers/fixtures/crypto/harness and tool binaries/libraries; manifests preserve roster and nested reconciliation",
+    "durable_conclusions": "gate records durable result in .dev-vault/tests/toc.md; writer supplies no result"
+  },
+  "budget": {
+    "allowed_new_representatives": 12,
+    "proposed": 12,
+    "surviving": 12,
+    "adjustment": "Use full cap, not preferred 8-10: preserve distinct initial vs producer vs capture-IO vs fullword-mismatch boundaries and independent real-auth negative/ARM unit closure. Merge clear fault timing and structural rejection witnesses as small scripts, not product matrices.",
+    "upfront_invocation_allocation": [
+      {
+        "phase": "bringup",
+        "max_seconds": 600,
+        "args": [
+          "--case",
+          "signed-run",
+          "--budget-seconds",
+          "600"
+        ]
+      },
+      {
+        "phase": "full",
+        "max_seconds": 600,
+        "args": [
+          "--all",
+          "--budget-seconds",
+          "600"
+        ]
+      },
+      {
+        "phase": "conditional harness-only correction",
+        "max_seconds": 300,
+        "args": [
+          "--all",
+          "--budget-seconds",
+          "300"
+        ],
+        "eligibility": "only infrastructure-invalid harness correction; no product repairs, flaky reruns or extra invocation"
+      }
+    ],
+    "build_cost": "one native Release sanitizer target per invocation; full also one cross crypto target and 19 production C objects + final unit link; no whole repository build",
+    "expected_wall_seconds": "bringup 15-90; full 30-180 depending local crypto/tool hash IO; hard supplied subprocess deadline, identity IO contributes overhead",
+    "writer_consumed": {
+      "builds": 0,
+      "executions": 0,
+      "invocations": 0
+    },
+    "gate_total_nominal_observations": 13,
+    "maximum_with_conditional_correction": 25
+  }
+}

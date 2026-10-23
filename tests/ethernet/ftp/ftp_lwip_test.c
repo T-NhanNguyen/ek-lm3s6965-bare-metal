@@ -1,0 +1,588 @@
+/* Memory Ethernet peer, not a fake TCP API. All receive traffic traverses
+ * ethernet_input -> IPv4/TCP checksums -> real lwIP callbacks. No host I/O. */
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include "lwip/init.h"
+#include "lwip/netif.h"
+#include "lwip/etharp.h"
+#include "lwip/timeouts.h"
+#include "lwip/stats.h"
+#include "lwip/priv/tcp_priv.h"
+#include "netif/ethernet.h"
+#include "lm3s6965/ftp_tcp.h"
+#include "lm3s6965/ftp_core.h"
+#include "lm3s6965/ftp_diagnostic.h"
+#include "lm3s6965/ram_file.h"
+#ifdef FTP_BOOT_BINDING_TEST
+#include "ftp_boot_fixture.h"
+#endif
+static ram_file_t fixture;
+static uint8_t fixture_a[4096], fixture_b[4096];
+
+static uint32_t clock_ms;
+u32_t sys_now(void) { return clock_ms; }
+static struct netif nic;
+static const uint8_t server_mac[6] = {2,0,0,0x69,0x65,2};
+static const uint8_t peer_mac[6] = {2,0,0,0,0,1};
+static const uint8_t peer_ip[4] = {192,168,7,1}, server_ip[4] = {192,168,7,2};
+struct peer {
+    uint16_t port, remote;
+    uint32_t tx, rx;
+    bool syn, pending, ack, fin;
+    uint8_t bytes[32768];
+    size_t length;
+};
+static struct peer ctrl, data;
+static unsigned duplicates, arp_replies, busy_calls, resets;
+static bool busy;
+static uint16_t get16(const uint8_t *p) { return (uint16_t)((p[0]<<8)|p[1]); }
+static uint32_t get32(const uint8_t *p) { return ((uint32_t)get16(p)<<16)|get16(p+2); }
+static void put16(uint8_t *p, uint16_t v) { p[0]=(uint8_t)(v>>8); p[1]=(uint8_t)v; }
+static void put32(uint8_t *p, uint32_t v) { put16(p,(uint16_t)(v>>16)); put16(p+2,(uint16_t)v); }
+static uint32_t sum(const uint8_t *p, size_t n, uint32_t s)
+{
+    while (n>=2) { s+=get16(p); p+=2; n-=2; }
+    if (n) s+=(uint16_t)(p[0]<<8);
+    return s;
+}
+static uint16_t checksum(uint32_t s)
+{
+    while (s>>16) s=(s&65535)+(s>>16);
+    return (uint16_t)~s;
+}
+static uint32_t pseudo(const uint8_t *ip, size_t n)
+{ return sum(ip+12,8,6+(uint32_t)n); }
+static void inject(const uint8_t *f, size_t n)
+{
+    struct pbuf *p=pbuf_alloc(PBUF_RAW,(u16_t)n,PBUF_POOL);
+    assert(p && pbuf_take(p,f,(u16_t)n)==ERR_OK);
+    assert(ethernet_input(p,&nic)==ERR_OK);
+}
+static err_t output(struct netif *n, struct pbuf *p)
+{
+    uint8_t f[1514]; (void)n;
+    if (busy) { ++busy_calls; return ERR_MEM; }
+    assert(p->tot_len<=sizeof f);
+    assert(pbuf_copy_partial(p,f,p->tot_len,0)==p->tot_len);
+    if (get16(f+12)==0x0806) { ++arp_replies; return ERR_OK; }
+    assert(get16(f+12)==0x0800);
+    const uint8_t *ip=f+14;
+    size_t ih=(ip[0]&15)*4u, total=get16(ip+2);
+    assert(total+14<=p->tot_len && checksum(sum(ip,ih,0))==0);
+    assert(ip[9]==6);
+    const uint8_t *t=ip+ih;
+    size_t tn=total-ih, th=(t[12]>>4)*4u;
+    assert(tn>=th && checksum(sum(t,tn,pseudo(ip,tn)))==0);
+    struct peer *c=get16(t+2)==ctrl.port ? &ctrl : &data;
+    assert(get16(t+2)==c->port && get16(t)==c->remote);
+    if (t[13]&TCP_RST) { ++resets; return ERR_OK; }
+    uint32_t seq=get32(t+4);
+    if (t[13]&TCP_SYN) { c->rx=seq+1; c->syn=true; c->pending=true; return ERR_OK; }
+    size_t len=tn-th;
+    if (seq==c->rx) {
+        assert(c->length+len<sizeof c->bytes);
+        memcpy(c->bytes+c->length,t+th,len); c->length+=len;
+        c->bytes[c->length]=0; c->rx+=(uint32_t)len;
+        if (t[13]&TCP_FIN) { ++c->rx; c->fin=true; }
+    } else if (len) { ++duplicates; }
+    if (len || (t[13]&TCP_FIN)) c->pending=true;
+    return ERR_OK;
+}
+static err_t setup(struct netif *n)
+{
+    n->name[0]='m'; n->name[1]='e'; n->mtu=1500;
+    n->hwaddr_len=6; memcpy(n->hwaddr,server_mac,6);
+    n->flags=NETIF_FLAG_BROADCAST|NETIF_FLAG_ETHARP;
+    n->output=etharp_output; n->linkoutput=output; return ERR_OK;
+}
+static void packet(struct peer *c, unsigned flags, const void *bytes, size_t len)
+{
+    uint8_t f[1514]={0}; assert(len<=1400);
+    memcpy(f,server_mac,6); memcpy(f+6,peer_mac,6); put16(f+12,0x0800);
+    uint8_t *ip=f+14, *t=ip+20;
+    ip[0]=0x45; put16(ip+2,(uint16_t)(40+len)); ip[8]=64; ip[9]=6;
+    memcpy(ip+12,peer_ip,4); memcpy(ip+16,server_ip,4);
+    put16(ip+10,checksum(sum(ip,20,0)));
+    put16(t,c->port); put16(t+2,c->remote); put32(t+4,c->tx); put32(t+8,c->rx);
+    t[12]=0x50; t[13]=(uint8_t)flags; put16(t+14,2144);
+    if (len) memcpy(t+20,bytes,len);
+    put16(t+16,checksum(sum(t,20+len,pseudo(ip,20+len))));
+    c->tx+=(uint32_t)len+!!(flags&TCP_SYN)+!!(flags&TCP_FIN);
+    inject(f,54+len);
+}
+static void pump(unsigned count)
+{
+    while (count--) {
+        ftp_tcp_service(clock_ms);
+        struct peer *cs[]={&ctrl,&data};
+        for (unsigned i=0;i<2;++i) if (cs[i]->pending && cs[i]->ack) {
+            cs[i]->pending=false; packet(cs[i],TCP_ACK,NULL,0);
+        }
+    }
+}
+static void advance(unsigned ms)
+{
+    while (ms) { unsigned d=ms>250?250:ms; clock_ms+=d; ms-=d; sys_check_timeouts(); pump(2); }
+}
+static void arp(void)
+{
+    uint8_t f[60]={0}; memset(f,255,6); memcpy(f+6,peer_mac,6); put16(f+12,0x0806);
+    uint8_t *a=f+14; put16(a,1); put16(a+2,0x0800); a[4]=6; a[5]=4; put16(a+6,1);
+    memcpy(a+8,peer_mac,6); memcpy(a+14,peer_ip,4); memcpy(a+24,server_ip,4);
+    inject(f,sizeof f); assert(arp_replies);
+}
+static void connect_peer(struct peer *c, uint16_t port, uint16_t remote)
+{
+    memset(c,0,sizeof *c); c->port=port; c->remote=remote; c->tx=1000+port; c->ack=true;
+    packet(c,TCP_SYN,NULL,0); assert(c->syn);
+    c->pending=false; packet(c,TCP_ACK,NULL,0); pump(12);
+}
+static void clear_control(void) { ctrl.length=0; ctrl.bytes[0]=0; }
+static void expect(const char *text) { assert(strstr((char *)ctrl.bytes,text)); }
+static void command(const char *s) { packet(&ctrl,TCP_ACK|TCP_PSH,s,strlen(s)); pump(32); }
+static void login(uint16_t port)
+{
+    connect_peer(&ctrl,port,21); expect("220 "); clear_control();
+    command("US"); assert(ctrl.length==0);
+    command("ER anonymous\r"); assert(ctrl.length==0);
+    command("\nPASS offline\r\nTYPE I\r\n");
+    expect("331 "); expect("230 "); expect("200 Binary"); clear_control();
+}
+static void passive(bool epsv)
+{
+    clear_control(); command(epsv?"EPSV\r\n":"PASV\r\n");
+    unsigned port=0,a,b,c,d,hi,lo;
+    if (epsv) assert(sscanf((char *)ctrl.bytes,"229 Entering Extended Passive Mode (|||%u|",&port)==1);
+    else {
+        assert(sscanf((char *)ctrl.bytes,"227 Entering Passive Mode (%u,%u,%u,%u,%u,%u",&a,&b,&c,&d,&hi,&lo)==6);
+        assert(a==192 && b==168 && c==7 && d==2); port=hi*256+lo;
+    }
+    assert(port>0 && port<=65535);
+    connect_peer(&data,(uint16_t)(30000+port%10000),(uint16_t)port); clear_control();
+}
+static void upload(const uint8_t *bytes, size_t n, bool epsv, bool finish)
+{
+    passive(epsv); command("STOR hello\r\n"); expect("150 "); clear_control();
+    for (size_t i=0;i<n;) {
+        size_t k=n-i>512?512:n-i; packet(&data,TCP_ACK|TCP_PSH,bytes+i,k); pump(16); i+=k;
+    }
+    if (finish) { packet(&data,TCP_ACK|TCP_FIN,NULL,0); pump(32); expect("226 Transfer complete.\r\n"); assert(data.fin); }
+}
+static void download(const uint8_t *bytes, size_t n, bool epsv, bool lag)
+{
+    passive(epsv); data.ack=!lag; command("RETR hello\r\n"); expect("150 ");
+    if (lag && n) {
+        assert(data.length>0 && data.length<=TCP_SND_BUF); assert(!data.fin);
+        assert(!strstr((char *)ctrl.bytes,"226 "));
+        unsigned before=duplicates; advance(3250);
+        assert(duplicates>before); assert(!strstr((char *)ctrl.bytes,"226 "));
+        /* ACK prefixes to open the send window, then withhold the final ACK.
+         * Even when every byte has reached this peer, 226/FIN must wait. */
+        for (unsigned i=0;data.length<n && i<20;++i) {
+            data.pending=false; packet(&data,TCP_ACK,NULL,0); pump(8);
+        }
+        assert(data.length==n && !data.fin);
+        assert(!strstr((char *)ctrl.bytes,"226 "));
+        data.pending=true; data.ack=true;
+    }
+    pump(100); expect("226 Transfer complete.\r\n");
+    assert(data.length==n && memcmp(data.bytes,bytes,n)==0 && data.fin);
+    packet(&data,TCP_ACK|TCP_FIN,NULL,0); pump(4);
+}
+static struct tcp_pcb *peer_pcb(const struct peer *c)
+{
+    for (struct tcp_pcb *p=tcp_active_pcbs;p;p=p->next)
+        if (p->remote_port==c->port && p->local_port==c->remote) return p;
+    assert(0); return NULL;
+}
+static void file_is(const uint8_t *bytes, size_t n)
+{
+    size_t length; bool exists;
+    const uint8_t *f=ftp_core_file(&length,&exists);
+    assert(exists && length==n && !memcmp(f,bytes,n));
+}
+static void fin_starvation(const uint8_t *bytes, unsigned outcome)
+{
+    upload(bytes,123,true,false); clear_control();
+    struct tcp_pcb *p=peer_pcb(&data);
+    packet(&data,TCP_ACK|TCP_FIN,NULL,0);
+    void *held[MEMP_NUM_TCP_SEG]; unsigned n=0;
+    while (n<MEMP_NUM_TCP_SEG && (held[n]=memp_malloc(MEMP_TCP_SEG))) ++n;
+    assert(memp_malloc(MEMP_TCP_SEG)==NULL);
+    pump(4);
+    assert(p->state==CLOSE_WAIT && !(p->flags & TF_CLOSEPEND));
+    assert(!data.fin && !strstr((char *)ctrl.bytes,"226 "));
+    file_is(bytes,4096);
+    if (outcome==0) {
+        packet(&data,TCP_RST|TCP_ACK,NULL,0); pump(4);
+        file_is(bytes,4096);
+    } else if (outcome==1) {
+        advance(4999); file_is(bytes,4096);
+        assert(peer_pcb(&data)==p && !data.fin);
+        advance(1); file_is(bytes,4096);
+        assert(!strstr((char *)ctrl.bytes,"226 "));
+    }
+    for (unsigned i=0;i<n;++i) memp_free(MEMP_TCP_SEG,held[i]);
+    pump(32);
+    if (outcome==2) {
+        expect("226 "); assert(data.fin); file_is(bytes,123);
+        packet(&data,TCP_ACK,NULL,0); pump(4);
+        upload(bytes,4096,true,true);
+    } else expect("426 ");
+}
+static void pools_empty(void)
+{
+    assert(!tcp_active_pcbs && !tcp_tw_pcbs && !tcp_bound_pcbs && !tcp_listen_pcbs.listen_pcbs);
+    assert(lwip_stats.mem.used==0);
+    const unsigned pools[]={MEMP_PBUF_POOL,MEMP_PBUF,MEMP_TCP_PCB,MEMP_TCP_PCB_LISTEN,MEMP_TCP_SEG};
+    for (unsigned i=0;i<sizeof pools/sizeof pools[0];++i) assert(lwip_stats.memp[pools[i]]->used==0);
+}
+#ifdef FTP_BOOT_BINDING_TEST
+/* Five bounded classes; each uses the production core, raw adapter and real
+ * signed verifier/controller/store fixtures through the in-memory peer. */
+#if LM3S6965_FTP_DIAGNOSTIC
+static uint32_t diagnostic_clock(void *context)
+{
+    (void)context;
+    return sys_now();
+}
+#endif
+static ftp_boot_t *boot_device(const ip4_addr_t *ip, bool trial, uint16_t port)
+{
+    ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty(); arp();
+    ftp_boot_t *b = ftp_boot_fixture_init(trial);
+#if LM3S6965_FTP_DIAGNOSTIC
+    ftp_diagnostic_clock(diagnostic_clock, NULL);
+#endif
+    assert(ftp_core_bind_operation(ftp_boot_operation(b)));
+    assert(ftp_tcp_start(ip) == ERR_OK); login(port);
+    return b;
+}
+static void boot_send(const uint8_t *p, size_t n)
+{
+    packet(&data, TCP_ACK|TCP_PSH, p, n);
+    pump(600); /* bounded turns, not one unbounded flash drain in service */
+}
+static void boot_cases(const ip4_addr_t *ip)
+{
+    uint8_t package[BOOT_MANIFEST_BYTES + BOOT_PAYLOAD_MIN];
+    char confirmation[BOOT_CONFIRM_CAPACITY];
+    /* 1. Owned coherent status and both durable/idempotent confirmation. */
+    ftp_boot_t *b = boot_device(ip, true, 21001);
+    passive(true); data.ack = false; command("RETR boot-status\r\n"); pump(32);
+    assert(!data.fin && !strstr((char *)ctrl.bytes, "226 "));
+    assert(b->active == FTP_BOOT_STATUS && data.length == b->status_length);
+    assert(!memcmp(data.bytes, b->status, data.length));
+    command("STOR confirm\r\n"); expect("503 ");
+    data.ack = true; packet(&data, TCP_ACK, NULL, 0); pump(32);
+    expect("226 "); assert(data.fin && strstr((char *)data.bytes, "trial_state=trial\n"));
+    size_t n = ftp_boot_fixture_confirm(confirmation);
+    unsigned before = ftp_boot_fixture_commands();
+    /* Well-formed wrong identity: no confirmation and no physical writes. */
+    confirmation[n-2] = '8';
+    passive(true); command("STOR confirm\r\n"); clear_control();
+    boot_send((const uint8_t *)confirmation, n);
+    packet(&data, TCP_ACK|TCP_FIN, NULL, 0); pump(32);
+    expect("451 "); assert(!strstr((char *)ctrl.bytes, "226 "));
+    assert(ftp_boot_fixture_commands() == before && !b->reset_requested);
+    n = ftp_boot_fixture_confirm(confirmation);
+    for (unsigned duplicate = 0; duplicate < 2; ++duplicate) {
+        passive(true); command("STOR confirm\r\n"); expect("150 "); clear_control();
+        boot_send((const uint8_t *)confirmation, n);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+        packet(&data, TCP_ACK|TCP_FIN, NULL, 0); pump(32); expect("226 ");
+        unsigned after = ftp_boot_fixture_commands();
+        assert(duplicate ? after == before : after > before); before = after;
+    }
+    boot_store_snapshot_t s = ftp_boot_fixture_metadata();
+    assert(s.record.current_slot == BOOT_SLOT_A && s.record.candidate_slot == BOOT_SLOT_NONE);
+    assert(!b->reset_requested);
+    /* 2. Partial manifest prefix, full-word WAIT, refused chain with FIN.
+     * No TCP callbacks may perform boot IO; only foreground pumping does. */
+    b = boot_device(ip, false, 21002); n = ftp_boot_fixture_package(package);
+    passive(true); command("STOR firmware\r\n"); expect("150 "); clear_control();
+    before = ftp_boot_fixture_commands();
+    packet(&data, TCP_ACK|TCP_PSH, package, BOOT_MANIFEST_BYTES + 5);
+    packet(&data, TCP_ACK|TCP_PSH|TCP_FIN, package + BOOT_MANIFEST_BYTES + 5,
+           n - BOOT_MANIFEST_BYTES - 5);
+    assert(ftp_boot_fixture_commands() == before);
+    struct tcp_pcb *p = peer_pcb(&data); assert(p && p->refused_data);
+    /* lwIP tcp_receive charges payload + FIN sequence space. The FIN byte
+     * stays charged until tcp_process_refused_data accepts the marked chain;
+     * only payload prefixes are credited by the adapter's tcp_recved calls. */
+    assert(p->state == CLOSE_WAIT && (p->refused_data->flags & PBUF_FLAG_TCP_FIN));
+    assert(p->rcv_wnd == TCP_WND - n - 1u);
+    pump(1);
+    assert(b->config.receiver->manifest_used == BOOT_MANIFEST_BYTES);
+    assert(b->config.receiver->received == 0u && !b->eof);
+    assert(p->rcv_wnd == TCP_WND - (n - BOOT_MANIFEST_BYTES) - 1u);
+    pump(1); /* zero accepted WAIT: no credit and EOF not delivered early */
+    assert(p->rcv_wnd == TCP_WND - (n - BOOT_MANIFEST_BYTES) - 1u && !b->eof);
+    assert(!strstr((char *)ctrl.bytes, "226 ") && !b->reset_requested);
+    /* Conflicting control service cannot bypass receiver ownership. */
+    command("RETR boot-status\r\n"); expect("503 "); clear_control();
+    /* Cross the first-chain 4+1 payload boundary one turn at a time. While
+     * refused, FIN still costs one byte. Reoffering transfers ownership, not
+     * payload credit: only that FIN byte is restored by lwIP at the handoff. */
+    bool saw_word_prefix = false;
+    for (unsigned turns = 0; p->refused_data && turns < 256u; ++turns) {
+        pump(1);
+        size_t consumed = BOOT_MANIFEST_BYTES + b->config.receiver->received;
+        assert(p->rcv_wnd == TCP_WND - (n - consumed) - !!p->refused_data);
+        if (b->config.receiver->received == 4u) saw_word_prefix = true;
+        assert(!b->eof && !b->reset_requested && !data.fin);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+    }
+    assert(saw_word_prefix && !p->refused_data);
+    assert(b->config.receiver->received == 5u);
+    assert(p->rcv_wnd == TCP_WND - (n - BOOT_MANIFEST_BYTES - 5u));
+    /* FIN is now delivered to the adapter, but the retained second chain
+     * must be credited exactly once before the backend can observe EOF. */
+    for (unsigned turns = 0; !b->eof && turns < 256u; ++turns) {
+        pump(1);
+        size_t consumed = BOOT_MANIFEST_BYTES + b->config.receiver->received;
+        assert(!p->refused_data && p->rcv_wnd == TCP_WND - (n - consumed));
+        assert(!b->reset_requested && !data.fin);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+    }
+    assert(b->eof && b->config.receiver->eof);
+    assert(b->config.receiver->received == n - BOOT_MANIFEST_BYTES);
+    assert(p->rcv_wnd == TCP_WND);
+    pump(600); expect("226 "); assert(data.fin && b->reset_requested);
+    s = ftp_boot_fixture_metadata();
+    assert(s.record.sequence == 22 && s.record.candidate_slot == BOOT_SLOT_B);
+    assert((s.record.images[1].accounting & 3u) == BOOT_STATE_READY);
+    before = ftp_boot_fixture_commands();
+    command("ABOR\r\n"); command("QUIT\r\n");
+    ftp_tcp_link_down(); assert(b->reset_requested && ftp_boot_fixture_commands() == before);
+    /* 3. Invalid package and flash operational failure never send 226. */
+    for (unsigned fault = 0; fault < 2; ++fault) {
+        b = boot_device(ip, false, (uint16_t)(21003 + fault));
+        n = ftp_boot_fixture_package(package);
+        if (!fault) package[0] ^= 1;
+        passive(true); command("STOR firmware\r\n"); clear_control();
+        if (fault) ftp_boot_fixture_fail();
+        boot_send(package, n);
+        assert(!strstr((char *)ctrl.bytes, "226 ")); expect("451 ");
+        assert(!b->reset_requested && b->active == FTP_BOOT_NONE);
+#if LM3S6965_FTP_DIAGNOSTIC
+        if (!fault) {
+            assert(ftp_diagnostic_record.auth_entry_valid && ftp_diagnostic_record.auth_exit_valid);
+            assert(ftp_diagnostic_record.auth_entry_phase == BOOT_RECEIVE_AUTHENTICATE);
+            assert(ftp_diagnostic_record.auth_exit_phase == BOOT_RECEIVE_TERMINAL);
+            assert(ftp_diagnostic_record.auth_result == BOOT_RECEIVE_MANIFEST);
+            assert(ftp_diagnostic_record.first_cause == FTP_DIAG_CORE_OPERATION_STEP);
+        }
+#endif
+        if (fault) {
+            assert(b->quarantine);
+            before = ftp_boot_fixture_commands();
+            passive(true); command("RETR boot-status\r\n"); expect("451 ");
+            passive(true); command("STOR confirm\r\n"); expect("451 ");
+            assert(b->quarantine && ftp_boot_fixture_commands() == before);
+        }
+    }
+    /* Exact EOF and trailing packages cannot become READY. */
+    for (unsigned length_error = 0; length_error < 2; ++length_error) {
+        b = boot_device(ip, false, (uint16_t)(21005 + length_error));
+        n = ftp_boot_fixture_package(package);
+        passive(true); command("STOR firmware\r\n"); clear_control();
+        boot_send(package, n - (length_error ? 0u : 1u));
+        if (length_error) boot_send(package, 1);
+        else { packet(&data, TCP_ACK|TCP_FIN, NULL, 0); pump(32); }
+        expect("451 "); assert(!strstr((char *)ctrl.bytes, "226 ") && !b->reset_requested);
+    }
+    /* 4. Cancel prefixes, WAIT timeout, control/data errors and linkdown.
+     * Each is a fresh device; one-shot receiver cannot be silently revived. */
+    for (unsigned cancel = 0; cancel < 7; ++cancel) {
+        b = boot_device(ip, false, (uint16_t)(21010 + cancel));
+        n = ftp_boot_fixture_package(package);
+        passive(true); command("STOR firmware\r\n"); clear_control();
+        packet(&data, TCP_ACK|TCP_PSH, package, BOOT_MANIFEST_BYTES);
+        pump((cancel & 1u) ? 120u : 1u); assert(!b->reset_requested);
+        if (cancel == 0) command("ABOR\r\n");
+        if (cancel == 1) command("QUIT\r\n");
+        if (cancel == 2) {
+            /* The first foreground turn authenticates but must not commit
+             * INVALIDATE before a pending control FIN is serviced. */
+            assert(b->config.receiver->phase == BOOT_RECEIVE_INVALIDATE);
+            assert(b->config.receiver->verify_result == BOOT_VERIFY_OK);
+            before = ftp_boot_fixture_commands();
+            packet(&ctrl, TCP_ACK|TCP_FIN, NULL, 0);
+            assert(b->config.receiver->phase == BOOT_RECEIVE_INVALIDATE);
+            pump(4);
+            assert(b->config.receiver->failure == BOOT_RECEIVE_ABORTED);
+            assert(b->config.receiver->failed_phase == BOOT_RECEIVE_INVALIDATE);
+            assert(b->config.receiver->received == 0u && b->config.receiver->programmed == 0u);
+            assert(!b->eof && !b->config.receiver->eof);
+            assert(ftp_boot_fixture_commands() == before);
+            assert(ftp_core_direction() == FTP_IDLE);
+            assert(!strstr((char *)ctrl.bytes, "426 "));
+#if LM3S6965_FTP_DIAGNOSTIC
+            assert(ftp_diagnostic_record.cause_valid && !ftp_diagnostic_record.armed);
+            assert(ftp_diagnostic_record.first_cause == FTP_DIAG_TCP_CONTROL_FIN);
+            assert(ftp_diagnostic_record.auth_entry_valid && ftp_diagnostic_record.auth_exit_valid);
+            assert(ftp_diagnostic_record.auth_entry_phase == BOOT_RECEIVE_AUTHENTICATE);
+            assert(ftp_diagnostic_record.auth_exit_phase == BOOT_RECEIVE_INVALIDATE);
+            assert(ftp_diagnostic_record.auth_result == BOOT_RECEIVE_OK);
+#endif
+        }
+        if (cancel == 3) { packet(&ctrl, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
+        if (cancel == 4) { packet(&data, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
+        if (cancel == 5) ftp_tcp_link_down();
+        if (cancel == 6) advance(15000);
+        assert(!b->reset_requested && b->active == FTP_BOOT_NONE);
+        assert(b->config.receiver->phase == BOOT_RECEIVE_TERMINAL);
+        s = ftp_boot_fixture_metadata();
+        assert(s.record.sequence == ((cancel & 1u) || cancel == 6 ? 21u : 20u));
+        assert(s.record.current_slot == BOOT_SLOT_A && s.record.candidate_slot == BOOT_SLOT_NONE);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+        before = ftp_boot_fixture_commands(); pump(4);
+        assert(ftp_boot_fixture_commands() == before);
+    }
+    /* One opaque foreground gap, unlike advance()'s serviced 250-ms steps.
+     * At exactly the inactivity deadline, core tick must cancel before the
+     * next receiver step. No FIN/RST or lwIP timer runs to cause this abort. */
+    b = boot_device(ip, false, 21017);
+    n = ftp_boot_fixture_package(package);
+    passive(true); command("STOR firmware\r\n"); expect("150 "); clear_control();
+    packet(&data, TCP_ACK|TCP_PSH, package, BOOT_MANIFEST_BYTES);
+    pump(1);
+    assert(b->config.receiver->phase == BOOT_RECEIVE_INVALIDATE);
+    assert(b->config.receiver->verify_result == BOOT_VERIFY_OK);
+    assert(ftp_boot_fixture_metadata().record.sequence == 20u);
+    before = ftp_boot_fixture_commands();
+    struct tcp_pcb *control_before_gap = peer_pcb(&ctrl);
+    clock_ms += 15000u;
+    assert(ftp_tcp_service(clock_ms));
+    expect("426 Transfer timed out.\r\n");
+    assert(peer_pcb(&ctrl) == control_before_gap && !ctrl.fin);
+    assert(b->active == FTP_BOOT_NONE && !b->reset_requested);
+    assert(b->config.receiver->phase == BOOT_RECEIVE_TERMINAL);
+    assert(b->config.receiver->failure == BOOT_RECEIVE_ABORTED);
+    assert(b->config.receiver->failed_phase == BOOT_RECEIVE_INVALIDATE);
+    assert(b->config.receiver->received == 0u && b->config.receiver->programmed == 0u);
+    assert(!b->eof && !b->config.receiver->eof);
+    assert(ftp_core_direction() == FTP_IDLE && !ftp_core_data_is_connected());
+    assert(ftp_boot_fixture_commands() == before);
+    s = ftp_boot_fixture_metadata();
+    assert(s.record.sequence == 20u && s.record.current_slot == BOOT_SLOT_A);
+    assert(s.record.candidate_slot == BOOT_SLOT_NONE);
+    assert(!strstr((char *)ctrl.bytes, "226 "));
+    command("NOOP\r\n"); expect("200 OK.\r\n");
+    assert(ftp_boot_fixture_commands() == before);
+#if LM3S6965_FTP_DIAGNOSTIC
+    assert(ftp_diagnostic_record.cause_valid && !ftp_diagnostic_record.armed);
+    assert(ftp_diagnostic_record.first_cause == FTP_DIAG_CORE_TRANSFER_PROGRESS);
+    ftp_diagnostic_record_t retained = ftp_diagnostic_record;
+    passive(true); command("RETR boot-status\r\n"); pump(32); expect("226 ");
+    assert(ftp_diagnostic_record.cause_ms == retained.cause_ms);
+    assert(ftp_diagnostic_record.first_cause == retained.first_cause);
+    assert(ftp_diagnostic_record.auth_entry_ms == retained.auth_entry_ms);
+    assert(ftp_diagnostic_record.auth_exit_ms == retained.auth_exit_ms);
+    assert(ftp_diagnostic_record.auth_exit_valid && !ftp_diagnostic_record.armed);
+#endif
+    /* 5. Durable acceptance survives lost reply and failed FIN allocation.
+     * No claim of reset, trial execution, or rollback from transport loss. */
+    for (unsigned terminal = 0; terminal < 4; ++terminal) {
+        b = boot_device(ip, false, (uint16_t)(21020 + terminal));
+        n = ftp_boot_fixture_package(package);
+        passive(true); command("STOR firmware\r\n"); clear_control(); boot_send(package, n);
+        packet(&data, TCP_ACK|TCP_FIN, NULL, 0);
+        void *held[MEMP_NUM_TCP_SEG]; unsigned hn = 0;
+        while (hn < MEMP_NUM_TCP_SEG && (held[hn] = memp_malloc(MEMP_TCP_SEG))) ++hn;
+        pump(100); assert(b->reset_requested && !data.fin);
+        assert(!strstr((char *)ctrl.bytes, "226 "));
+        before = ftp_boot_fixture_commands();
+        if (terminal == 0) { packet(&ctrl, TCP_ACK|TCP_RST, NULL, 0); pump(4); }
+        if (terminal == 1) command("ABOR\r\n");
+        if (terminal == 2) advance(5000);
+        if (terminal == 3) ftp_tcp_link_down();
+        assert(b->reset_requested && b->active == FTP_BOOT_NONE);
+        assert(ftp_boot_fixture_commands() == before);
+        for (unsigned i = 0; i < hn; ++i) memp_free(MEMP_TCP_SEG, held[i]);
+        pump(4); assert(!strstr((char *)ctrl.bytes, "226 "));
+        if (terminal == 1) expect("225 Operation already accepted.");
+    }
+    ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty();
+    assert(ftp_core_bind_operation(NULL));
+    puts("FTP boot binding: five bounded real-component transport classes passed");
+}
+#endif
+int main(void)
+{
+    assert(LWIP_VERSION_MAJOR==2 && LWIP_VERSION_MINOR==2 && LWIP_VERSION_REVISION==1);
+    lwip_init(); ip4_addr_t ip,mask,gw;
+    IP4_ADDR(&ip,192,168,7,2); IP4_ADDR(&mask,255,255,255,0); ip4_addr_set_zero(&gw);
+    assert(netif_add(&nic,&ip,&mask,&gw,NULL,setup,ethernet_input));
+    netif_set_default(&nic); netif_set_up(&nic); netif_set_link_up(&nic); arp();
+    assert(!ftp_core_is_initialized());
+    assert(ftp_tcp_start(&ip)==ERR_VAL);
+    assert(!tcp_listen_pcbs.listen_pcbs && !tcp_active_pcbs);
+    assert(ram_file_init(&fixture,fixture_a,fixture_b,4096u,"hello"));
+    assert(ftp_core_init(ram_file_storage(&fixture)));
+    ftp_core_reset();
+    assert(ftp_tcp_start(&ip)==ERR_OK); login(20001);
+    uint8_t bytes[4097]; for (size_t i=0;i<sizeof bytes;++i) bytes[i]=(uint8_t)(i*37);
+    const size_t lengths[]={0,17,4096};
+    for (unsigned i=0;i<3;++i) {
+        upload(bytes,lengths[i],i!=1,true);
+        download(bytes,lengths[i],i==1,lengths[i]!=0);
+    }
+    /* Real FIN allocation exhaustion: tcp_close would mask ERR_MEM as OK.
+     * Verify retained ownership, reset/5-s rollback, and recovery/commit. */
+    fin_starvation(bytes,0); fin_starvation(bytes,1); fin_starvation(bytes,2);
+    /* Failed staging must never replace the complete 4096-byte file. */
+    upload(bytes,123,true,false); packet(&data,TCP_RST|TCP_ACK,NULL,0); pump(32); expect("426 ");
+    download(bytes,4096,false,false);
+    upload(bytes,4097,false,false); expect("552 "); download(bytes,4096,true,false);
+    /* Reply-ring and retained pbuf backpressure with many coalesced commands. */
+    char commands[600]; for (unsigned i=0;i<100;++i) memcpy(commands+i*6,"NOOP\r\n",6);
+    clear_control(); busy=true; packet(&ctrl,TCP_ACK|TCP_PSH,commands,sizeof commands); pump(20);
+    assert(busy_calls && ctrl.length==0); busy=false; pump(250);
+    assert(ctrl.length==100*strlen("200 OK.\r\n"));
+    for (unsigned i=0;i<100;++i) assert(memcmp(ctrl.bytes+i*9,"200 OK.\r\n",9)==0);
+    /* QUIT owns one pbuf while lwIP refuses the following chain. Write and
+     * output pressure retain both; later trailing packets are also drained. */
+    clear_control(); unsigned resets_before=resets;
+    packet(&ctrl,TCP_ACK|TCP_PSH,"QUIT\r\nNOOP\r\n",12);
+    packet(&ctrl,TCP_ACK|TCP_PSH,"NOOP\r\n",6);
+    struct tcp_pcb *cp=peer_pcb(&ctrl);
+    assert(cp->refused_data);
+    void *held[MEMP_NUM_TCP_SEG]; unsigned hn=0;
+    while (hn<MEMP_NUM_TCP_SEG && (held[hn]=memp_malloc(MEMP_TCP_SEG))) ++hn;
+    busy=true; pump(4);
+    assert(!cp->refused_data && cp->rcv_wnd==TCP_WND && ctrl.length==0);
+    packet(&ctrl,TCP_ACK|TCP_PSH,"NOOP\r\n",6);
+    pump(4); assert(!cp->refused_data && cp->rcv_wnd==TCP_WND);
+    assert(!ctrl.fin && ctrl.length==0);
+    for (unsigned i=0;i<hn;++i) memp_free(MEMP_TCP_SEG,held[i]);
+    pump(4); assert(!ctrl.fin && ctrl.length==0);
+    busy=false; pump(32);
+    assert(ctrl.fin && resets==resets_before && ctrl.length==strlen("221 Goodbye.\r\n"));
+    expect("221 Goodbye.\r\n");
+    packet(&ctrl,TCP_ACK|TCP_FIN,NULL,0); pump(8);
+    login(20002); download(bytes,4096,true,false);
+    upload(bytes,100,true,false); unsigned before=duplicates;
+    netif_set_link_down(&nic); netif_set_down(&nic); ftp_tcp_link_down(); etharp_cleanup_netif(&nic);
+    pools_empty(); advance(1000); assert(duplicates==before); pools_empty();
+    netif_set_up(&nic); netif_set_link_up(&nic); arp(); assert(ftp_tcp_start(&ip)==ERR_OK);
+    login(20003); download(bytes,4096,false,false);
+    /* Ring lifetime is over after tcp_write, but failed tcp_output is still
+     * bounded. QUIT must not wait indefinitely under linkoutput pressure. */
+    clear_control(); busy=true; packet(&ctrl,TCP_ACK|TCP_PSH,"QUIT\r\n",6); pump(4);
+    size_t pending; assert(!ftp_core_reply_peek(&pending));
+    advance(4999); assert(peer_pcb(&ctrl));
+    advance(1); busy=false;
+    for (struct tcp_pcb *p=tcp_active_pcbs;p;p=p->next) assert(p->remote_port!=ctrl.port);
+    assert(!ctrl.fin && ctrl.length==0);
+    ftp_tcp_link_down(); etharp_cleanup_netif(&nic); pools_empty();
+#ifdef FTP_BOOT_BINDING_TEST
+    boot_cases(&ip);
+#endif
+    puts("FTP real lwIP: ARP/checksums, fragmented/coalesced login, EPSV/PASV, binary 0/17/4096, RST/overflow preservation, ACK lag/retransmission, output/reply backpressure, reconnect/link teardown/pools passed");
+    return 0;
+}

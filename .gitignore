@@ -38,10 +38,22 @@ compile_commands.json
 .cache/
 
 # ---------------------------------------------------------------------------
+# Local dependency source; public provenance and configuration stay visible.
+# ---------------------------------------------------------------------------
+/third_party/mbedtls/
+
+# ---------------------------------------------------------------------------
 # Private development journal and agent scratch -- never published.
 # ---------------------------------------------------------------------------
 .dev-vault/
 .pi/
+
+# ---------------------------------------------------------------------------
+# Personal learning frontend (motion-graphics visual curriculum).
+# Local-only teaching artifact: zero-dependency static HTML/CSS/JS.
+# Start it with: motion-lab/serve.sh
+# ---------------------------------------------------------------------------
+/motion-lab/
 
 # ---------------------------------------------------------------------------
 # Secrets and machine-local configuration -- never commit these.

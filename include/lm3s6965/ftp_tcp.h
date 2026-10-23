@@ -1,5 +1,6 @@
 #ifndef LM3S6965_FTP_TCP_H
 #define LM3S6965_FTP_TCP_H
+#include <stdbool.h>
 #include <stdint.h>
 #include "lwip/err.h"
 #include "lwip/ip4_addr.h"
@@ -13,8 +14,12 @@
  * once ready. Nonblocking and idempotent while started. Backend lifetime and
  * explicit cold-boot reset policy belong to caller, not this adapter. */
 err_t ftp_tcp_start(const ip4_addr_t *address);
-/* Called every loop, even down. Unsigned modular milliseconds from sys_now. */
-void ftp_tcp_service(uint32_t now);
+/* Called once per foreground turn, even down. Modular ms from sys_now.
+ * True only after the turn completes, with at most one operation step outside
+ * raw callbacks. Idle, backpressure and handled client/operation failures are
+ * completed work, not transaction acceptance. Missing core binding or reentry
+ * is a sticky owner failure: false now and on all later calls, no restart. */
+bool ftp_tcp_service(uint32_t now);
 /* Called after administrative/link down and ARP cleanup. Abort all control,
  * data and listening PCBs, release retained pbufs/state; safe if not started.
  * No network output, waits or stdio. Allows a fresh start on readiness. */
